@@ -40,8 +40,8 @@ const DEFAULT_ROSTER = {
   mentorPairs: [],
   /* 會員名單不含委員(委員為獨立名單,排位時一起輪換) */
   members: [
-    "魏軒壽","王文正","邱彥傑","陳師平","朱苡菱","蔡瑋鉱","江品萱","玲唯齊",
-    "郭亭君","李鴻毅","鄭淑宜","蔡佩玲","翁啓信",
+    "魏軒壽","王文正","邱彥傑","陳師平","朱苡菱","蔡瑋竑","江品萱","玲唯齊",
+    "郭亭君","李鴻毅","鄭淑宜","蔡佩玲","翁啟信",
     "王彥萍","鄭建通","鍾宇傑","周珈汶","張煥晨","劉宜賢",
     "張維麟","曾智源","關崇益","黃致榮","謝宗杰","呂秉軒","陳麗惠","趙一蒨","于美云",
     "張力文","陳秋榮","林宗儒","石沛晴","趙祥吉",
@@ -222,8 +222,10 @@ const inputStyle = {
   color: C.ink,
 };
 
-/* ---------------- 例會三張表(細節表單/來賓簽到/來賓桌牌) ---------------- */
+/* ---------------- 例會三張表(細節表單/來賓簽到/來賓名牌) ---------------- */
 const KAI = '"DFKai-SB","BiauKai","Kaiti TC","KaiTi","Noto Serif TC",serif';
+/* A4 @96dpi:直向 794×1123、橫向 1123×794 */
+const A4 = { longSide: 1123, shortSide: 794 };
 const fmtMinguo = (label) => {
   const m = (label || "").match(/(\d+)\D+(\d+)\D+(\d+)/);
   return m ? `${m[1]} 年 ${m[2]} 月 ${m[3]}` : label || "";
@@ -266,7 +268,7 @@ function DetailSheet({ data }) {
   const d = fmtMinguo(data.label);
   const line = { margin: "7px 0" };
   return (
-    <div style={{ width: 1123, boxSizing: "border-box", background: "#fff", color: "#000", padding: "44px 52px", fontFamily: KAI, display: "flex", gap: 46 }}>
+    <div style={{ width: A4.longSide, minHeight: A4.shortSide, boxSizing: "border-box", background: "#fff", color: "#000", padding: "44px 52px", fontFamily: KAI, display: "flex", gap: 46 }}>
       <div style={{ width: 470, fontSize: 14, lineHeight: 1.95 }}>
         {CHECKLIST.map((l, i) => (
           <div key={i} style={{ paddingLeft: l.ind * 18, color: l.gray ? "#999" : "#000", textDecoration: l.u ? "underline" : "none" }}>
@@ -314,7 +316,7 @@ function GuestSignSheet({ data }) {
   const td = { border: "1px solid #000", padding: "9px 6px", textAlign: "center", fontSize: 16, height: 26 };
   const widths = [52, 110, 110, 150, 140, 230, 90, 54];
   return (
-    <div style={{ width: 1123, boxSizing: "border-box", background: "#fff", color: "#000", padding: "40px 46px 28px", fontFamily: KAI }}>
+    <div style={{ width: A4.longSide, minHeight: A4.shortSide, boxSizing: "border-box", background: "#fff", color: "#000", padding: "40px 46px 28px", fontFamily: KAI }}>
       <div style={{ textAlign: "center", fontSize: 26, fontWeight: 700, letterSpacing: 2, marginBottom: 22 }}>
         BNI 長城鈦金名人堂分會 來賓簽到 {d} 日
       </div>
@@ -369,27 +371,29 @@ const TentBanner = () => (
   </div>
 );
 
-function TentCards({ data }) {
+function NameBadges({ data }) {
   const guests = data.guests || [];
+  /* 一張 A4 直向排 3 列×2 欄=6 張;來賓超過 6 位往下延伸(列印時自動分頁) */
   const slots = Math.max(6, Math.ceil(guests.length / 2) * 2);
   const cards = Array.from({ length: slots }, (_, i) => guests[i] || null);
+  const CARD_H = 345; // 固定高度使 3 列恰好填滿 A4 直向
   return (
-    <div style={{ width: 794, boxSizing: "border-box", background: "#fff", color: "#000", padding: "26px 20px", fontFamily: KAI, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px 14px" }}>
+    <div style={{ width: A4.shortSide, minHeight: A4.longSide, boxSizing: "border-box", background: "#fff", color: "#000", padding: "26px 20px", fontFamily: KAI, display: "grid", gridTemplateColumns: "1fr 1fr", gridAutoRows: `${CARD_H}px`, gap: "18px 14px" }}>
       {cards.map((g, i) => (
-        <div key={i} style={{ border: "1px dashed #bbb" }}>
+        <div key={i} style={{ border: "1px dashed #bbb", height: CARD_H, boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
           {/* 正面(摺線上方):名牌內容 */}
-          <div style={{ paddingBottom: 8 }}>
+          <div>
             <TentBanner />
-            <div style={{ fontSize: 42, fontWeight: 700, letterSpacing: 5, padding: "2px 16px 0", whiteSpace: "nowrap", overflow: "hidden" }}>
+            <div style={{ fontSize: 42, fontWeight: 700, letterSpacing: 5, padding: "6px 16px 0", whiteSpace: "nowrap", overflow: "hidden" }}>
               {g ? g.name : " "}
             </div>
             <div style={{ fontSize: 20, textAlign: "center", minHeight: 28 }}>{g ? g.industry || "" : " "}</div>
-            <div style={{ fontSize: 19, textAlign: "right", padding: "0 22px 4px", minHeight: 26 }}>
+            <div style={{ fontSize: 19, textAlign: "right", padding: "6px 22px 0", minHeight: 26 }}>
               {g && g.inviter ? `${g.inviter} 來賓` : " "}
             </div>
           </div>
           {/* 背面(摺線下方,倒印,摺起後立於桌面) */}
-          <div style={{ transform: "rotate(180deg)", paddingBottom: 6 }}>
+          <div style={{ transform: "rotate(180deg)" }}>
             <TentBanner />
           </div>
         </div>
@@ -1161,7 +1165,7 @@ function App() {
             <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
               來賓資料
               <span style={{ fontWeight: 400, fontSize: 13, color: "#7A6E5A", marginLeft: 8 }}>
-                姓名/行業別/邀請人等會帶入「③ 例會表單」的簽到表與桌牌;委員與小天使不指定則自動指派
+                姓名/行業別/邀請人等會帶入「③ 例會表單」的簽到表與名牌;委員與小天使不指定則自動指派
               </span>
             </div>
             {weekly.guests.map((g, i) => {
@@ -1516,18 +1520,19 @@ function App() {
           )}
           <div style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 14, lineHeight: 1.8 }}>
             三張表自動帶入「① 本週輸入」的資料(來賓的行業別、手機、E-mail、邀請人請在輸入時填寫)。
-            出席率、實到人數等空白欄位留待例會現場手寫。各表可下載成圖檔列印。
+            出席率、實到人數等空白欄位留待例會現場手寫。各表為 A4 尺寸,可下載成圖檔列印——
+            細節表單與簽到表為橫向(A4 橫印),來賓名牌為直向(A4 直印)。
           </div>
           {sheetData.guests.length === 0 && (
             <div style={{ background: C.amber, border: "1.5px solid #D9A93F", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14 }}>
-              ⚠ 尚未輸入來賓,簽到表與桌牌為空白格式。
+              ⚠ 尚未輸入來賓,簽到表與名牌為空白格式。
             </div>
           )}
 
           {[
             { key: "detail", title: "1. 例會細節表單", id: "sheet-detail", file: "例會細節表單", body: <DetailSheet data={sheetData} /> },
             { key: "sign", title: "2. 來賓簽到表", id: "sheet-sign", file: "來賓簽到表", body: <GuestSignSheet data={sheetData} /> },
-            { key: "tent", title: "3. 來賓桌牌", id: "sheet-tent", file: "來賓桌牌", body: <TentCards data={sheetData} /> },
+            { key: "tent", title: "3. 來賓名牌", id: "sheet-tent", file: "來賓名牌", body: <NameBadges data={sheetData} /> },
           ].map((s) => (
             <div key={s.key} style={{ marginBottom: 30 }}>
               <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
