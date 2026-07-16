@@ -69,11 +69,21 @@ const minguoToday = () => {
 };
 const emptyWeekly = () => ({
   label: minguoToday(),
-  guests: [], // {name, committee, angel}
+  guests: [], // {name, industry, phone, email, inviter, committee, angel}
   proxies: [], // 由代理出席的「會員」名字
   absent: [],
   agenda: ["", "", "", "", ""],
+  visitors: 0, // 分會參訪人數(不記名,座位標示「參訪」)
 });
+
+/* 最近一次「已過去」的週三 10:00(裝置本地時間);例會結束後本週表單自動恢復空白 */
+const lastResetTime = () => {
+  const d = new Date();
+  d.setHours(10, 0, 0, 0);
+  while (d.getDay() !== 3) d.setDate(d.getDate() - 1);
+  if (d.getTime() > Date.now()) d.setDate(d.getDate() - 7);
+  return d.getTime();
+};
 
 const buildPairs = (groups) => {
   const s = new Set();
@@ -178,6 +188,8 @@ const seatStyle = (kind) => ({
       ? C.proxy
       : kind === "amb"
       ? C.blue
+      : kind === "visitor"
+      ? "#E8E4DA"
       : C.seat,
   border: `1.5px solid ${
     kind === "guest"
@@ -186,6 +198,8 @@ const seatStyle = (kind) => ({
       ? C.proxyBorder
       : kind === "amb"
       ? C.blueBorder
+      : kind === "visitor"
+      ? "#9A917E"
       : C.seatBorder
   }`,
   borderRadius: 3,
@@ -398,8 +412,7 @@ const parseKey = (k) => {
 
 function App() {
   const [roster, setRoster] = useState(DEFAULT_ROSTER);
-  const [memberText, setMemberText] = useState(DEFAULT_ROSTER.members.join("\n"));
-  const [committeeText, setCommitteeText] = useState(DEFAULT_ROSTER.committee.join("\n"));
+  const [newMember, setNewMember] = useState("");
   const [history, setHistory] = useState(null);
   const [weekly, setWeekly] = useState(emptyWeekly());
   const [result, setResult] = useState(null);
@@ -409,6 +422,41 @@ function App() {
   const [sel, setSel] = useState(null);
   const [saved, setSaved] = useState([]);
   const [viewing, setViewing] = useState(null);
+  const [confirmDlg, setConfirmDlg] = useState(null); // {message, onConfirm}
+  const askConfirm = (message, onConfirm) => setConfirmDlg({ message, onConfirm });
+
+  /* ---------- 管理員登入(前端門檻:僅防誤用,無法防原始碼檢視) ---------- */
+  const [authed, setAuthed] = useState(() => {
+    try { return sessionStorage.getItem("gw-auth") === "1"; } catch (e) { return false; }
+  });
+  const [loginDlg, setLoginDlg] = useState(null); // {next}
+  const [loginUser, setLoginUser] = useState("");
+  const [loginPass, setLoginPass] = useState("");
+  const [loginErr, setLoginErr] = useState("");
+  const requireAuth = (next) => {
+    if (authed) { next(); return; }
+    setLoginUser("");
+    setLoginPass("");
+    setLoginErr("");
+    setLoginDlg({ next });
+  };
+  const tryLogin = () => {
+    if (loginUser.trim() === "admin" && loginPass === "3345678") {
+      try { sessionStorage.setItem("gw-auth", "1"); } catch (e) {}
+      setAuthed(true);
+      const next = loginDlg && loginDlg.next;
+      setLoginDlg(null);
+      if (next) next();
+    } else {
+      setLoginErr("帳號或密碼錯誤");
+    }
+  };
+  const logout = () => {
+    try { sessionStorage.removeItem("gw-auth"); } catch (e) {}
+    setAuthed(false);
+    setViewing(null);
+    setTab("week");
+  };
 
   /* 載入儲存資料 */
   useEffect(() => {
@@ -424,8 +472,6 @@ function App() {
           const cSet = new Set(parsed.committee.map((s) => (s || "").trim()));
           parsed.members = (parsed.members || []).filter((m) => !cSet.has((m || "").trim())); // 委員為獨立名單
           setRoster(parsed);
-          setMemberText(parsed.members.join("\n"));
-          setCommitteeText(parsed.committee.join("\n"));
         }
       } catch (e) {}
       try {
@@ -443,21 +489,27 @@ function App() {
         const w = await window.storage.get("gw-weekly");
         if (w) {
           const parsed = { ...emptyWeekly(), ...JSON.parse(w.value) };
-          if (!parsed.agenda || parsed.agenda.length !== 5)
-            parsed.agenda = ["", "", "", "", ""];
-          parsed.proxies = (parsed.proxies || [])
-            .map((p) => (typeof p === "string" ? p : (p && p.forMember) || ""))
-            .filter(Boolean);
-          parsed.guests = (parsed.guests || []).map((g) => ({
-            name: g.name || "",
-            committee: g.committee || "",
-            angel: g.angel || "",
-            industry: g.industry || "",
-            phone: g.phone || "",
-            email: g.email || "",
-            inviter: g.inviter || "",
-          }));
-          setWeekly(parsed);
+          /* 每週三 10:00 後表單恢復空白:暫存時間早於最近一次週三 10:00 即視為上週資料 */
+          if (!parsed.savedAt || parsed.savedAt < lastResetTime()) {
+            window.storage.set("gw-weekly", JSON.stringify(emptyWeekly())).catch(() => {});
+          } else {
+            if (!parsed.agenda || parsed.agenda.length !== 5)
+              parsed.agenda = ["", "", "", "", ""];
+            parsed.proxies = (parsed.proxies || [])
+              .map((p) => (typeof p === "string" ? p : (p && p.forMember) || ""))
+              .filter(Boolean);
+            parsed.guests = (parsed.guests || []).map((g) => ({
+              name: g.name || "",
+              committee: g.committee || "",
+              angel: g.angel || "",
+              industry: g.industry || "",
+              phone: g.phone || "",
+              email: g.email || "",
+              inviter: g.inviter || "",
+            }));
+            parsed.visitors = Math.max(0, parseInt(parsed.visitors, 10) || 0);
+            setWeekly(parsed);
+          }
         }
       } catch (e) {}
     })();
@@ -730,6 +782,26 @@ function App() {
       if (t.type === "guest" && i % 2 === 0) t.seats.reverse();
     });
 
+    /* 分會參訪桌:不記名、一律附加在底排最後(會員與來賓優先內側排);
+       有參訪時底排最多 3 排(6 桌) */
+    const visitorCount = Math.max(0, parseInt(weekly.visitors, 10) || 0);
+    if (visitorCount > 0) {
+      const roomLeft = Math.max(0, 6 - slots.bottom.length);
+      const needTables = Math.ceil(visitorCount / 3);
+      const vTables = Math.min(needTables, roomLeft);
+      if (needTables > vTables)
+        warnings.push(
+          `參訪 ${visitorCount} 人需 ${needTables} 桌,底排(含參訪最多 3 排)僅能再放 ${roomLeft} 桌,超出部分請現場加椅調整`
+        );
+      for (let i = 0; i < vTables; i++) {
+        const n = Math.min(3, visitorCount - i * 3);
+        slots.bottom.push({
+          seats: Array.from({ length: n }, () => ({ name: "參訪", kind: "visitor" })),
+          type: "visitor",
+        });
+      }
+    }
+
     const fixedCount =
       roster.chairRow.filter((c) => c.name.trim()).length +
       roster.sound.filter(Boolean).length +
@@ -744,10 +816,11 @@ function App() {
         proxies: proxied.size,
         guests: lockedTables.length,
         absentNoProxy: weekly.absent.length,
-        bottomRows: bottomCap / 2,
+        visitors: visitorCount,
+        bottomRows: Math.max(1, Math.ceil(slots.bottom.length / 2)),
       },
     });
-    persist("gw-weekly", weekly);
+    persist("gw-weekly", { ...weekly, savedAt: Date.now() });
     setSel(null);
     setConfirmArm(false);
     setMsg("");
@@ -785,7 +858,7 @@ function App() {
   };
 
   const Seat = ({ seat, z, t, s }) => {
-    if (seat.kind === "amb" || viewing) {
+    if (seat.kind === "amb" || seat.kind === "visitor" || viewing) {
       return <div style={{ ...seatStyle(seat.kind), cursor: "default" }}>{seat.name}</div>;
     }
     const k = keyOf(z, t, s);
@@ -870,43 +943,43 @@ function App() {
     persist("gw-saved", list);
     const fresh = emptyWeekly();
     setWeekly(fresh);
-    persist("gw-weekly", fresh);
+    persist("gw-weekly", { ...fresh, savedAt: Date.now() });
     setConfirmArm(false);
     setMsg(`已存檔 ${h.label} 分桌紀錄(含手動調整),並加入「儲存紀錄」;下週排位將自動避開本週同桌組合。`);
   };
 
-  const saveRoster = () => {
-    const parseLines = (txt) => {
-      const seen = new Set();
-      txt.split("\n").map((s) => s.trim()).filter(Boolean).forEach((m) => seen.add(m));
-      return [...seen];
-    };
-    const members0 = parseLines(memberText);
-    const committee = parseLines(committeeText);
-    const cSet = new Set(committee);
-    const moved = members0.filter((m) => cSet.has(m));
-    const members = members0.filter((m) => !cSet.has(m));
-    const r = { ...roster, members, committee };
-    setRoster(r);
-    setMemberText(members.join("\n"));
-    setCommitteeText(committee.join("\n"));
-    persist("gw-roster", r);
-    setMsg(
-      `名單已儲存:會員 ${members.length} 位、委員 ${committee.length} 位(排位時會員與委員一起輪換分桌)。` +
-        (moved.length
-          ? `「${moved.join("、")}」已自動從會員名單移出(委員為獨立名單);委員卸任後請記得把名字加回會員名單。`
-          : "")
-    );
+  /* ---------- 名單增刪(即時儲存,無需另按儲存) ---------- */
+  const addMember = () => {
+    const name = newMember.trim();
+    if (!name) return;
+    const exists = [
+      ...roster.members,
+      ...(roster.committee || []),
+      ...roster.chairRow.map((c) => c.name),
+      ...roster.sound,
+      ...roster.ambassadors,
+    ].some((m) => (m || "").trim() === name);
+    if (exists) {
+      setMsg(`「${name}」已在名單或職務中,未重複加入。`);
+      setNewMember("");
+      return;
+    }
+    updateRoster({ ...roster, members: [...roster.members, name] });
+    setNewMember("");
+    setMsg(`已新增會員「${name}」。`);
   };
+  const deleteMember = (name) =>
+    askConfirm(`確認刪除會員(${name})嗎?將自輪換名單移除。`, () => {
+      updateRoster({ ...roster, members: roster.members.filter((m) => m.trim() !== name) });
+      setMsg(`已刪除會員「${name}」。`);
+    });
 
   /* ---------- 屆期交接:一鍵卸任與拖曳指派 ---------- */
-  const syncRosterTexts = (r) => {
-    updateRoster(r);
-    setMemberText(r.members.join("\n"));
-    setCommitteeText((r.committee || []).join("\n"));
-  };
+  const syncRosterTexts = (r) => updateRoster(r);
   const retireAll = () => {
-    if (!window.confirm("確定卸任所有職務?主席排、電音、大使、委員將全部清空,名字回到會員名單。")) return;
+    askConfirm("確定卸除所有職務嗎?主席排、電音、大使、委員將全部清空,名字回到會員名單。", doRetireAll);
+  };
+  const doRetireAll = () => {
     const names = [
       ...roster.chairRow.map((c) => c.name.trim()),
       ...roster.sound.map((s) => (s || "").trim()),
@@ -996,7 +1069,11 @@ function App() {
   const unassignCommittee = (name) =>
     releaseTo(name, { committee: (roster.committee || []).filter((c) => c.trim() !== name) }, "委員");
 
-  const upWeekly = (w) => setWeekly(w);
+  /* 任何人輸入即暫存(於自己的瀏覽器);savedAt 供每週三 10:00 過期判斷 */
+  const upWeekly = (w) => {
+    setWeekly(w);
+    persist("gw-weekly", { ...w, savedAt: Date.now() });
+  };
   /* 選單名單 = 會員 ∪ 委員,扣除固定席 */
   const fixedNames = new Set(
     [
@@ -1015,8 +1092,12 @@ function App() {
   const tabBtn = (id, label) => (
     <button
       onClick={() => {
-        setTab(id);
-        setViewing(null);
+        const go = () => {
+          setTab(id);
+          setViewing(null);
+        };
+        if (id === "week") go();
+        else requireAuth(go);
       }}
       style={{
         ...btn(false),
@@ -1036,6 +1117,7 @@ function App() {
         ["會員", C.seat, C.seatBorder],
         ["來賓(必坐中間)", C.guest, C.guestBorder],
         ["代理出席(右側外圍)", C.proxy, C.proxyBorder],
+        ["參訪(底排外側)", "#E8E4DA", "#9A917E"],
         ["大使席(固定)", C.blue, C.blueBorder],
       ].map(([t, bg, bd]) => (
         <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
@@ -1089,11 +1171,13 @@ function App() {
         window.print();
       });
   };
-  /* 座位圖 + 例會資料 同步下載:一張座位圖(含例會資訊)+ 一張例會細節表單 */
+  /* 一鍵同步下載:座位圖 + 例會細節表單 + 來賓簽到表 + 來賓名牌(共 4 張) */
   const downloadMeetingSet = async () => {
     const lb = safeLabelOf(mapView && mapView.label);
     await downloadPng("seatmap", `長城鈦金名人堂分會座位圖_${lb}`);
     await downloadPng("meeting-detail", `長城鈦金名人堂分會例會資料_${lb}`);
+    await downloadPng("sheet-sign", `來賓簽到表_${lb}`);
+    await downloadPng("sheet-tent", `來賓名牌_${lb}`);
   };
 
   /* 三張表資料來源:瀏覽儲存紀錄時用快照,否則用本週輸入 */
@@ -1130,10 +1214,14 @@ function App() {
         </div>
         <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
           {tabBtn("week", "① 本週輸入")}
-          {tabBtn("map", "② 座位圖")}
-          {tabBtn("sheets", "③ 例會表單")}
+          {tabBtn("map", "② 座位圖與表單")}
           {tabBtn("saved", "儲存紀錄")}
           {tabBtn("roster", "名單管理")}
+          {authed && (
+            <button style={{ ...btn(false), padding: "7px 12px", fontSize: 13 }} onClick={logout}>
+              登出
+            </button>
+          )}
         </div>
       </div>
 
@@ -1162,7 +1250,7 @@ function App() {
             <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
               來賓資料
               <span style={{ fontWeight: 400, fontSize: 13, color: "#7A6E5A", marginLeft: 8 }}>
-                姓名/行業別/邀請人等會帶入「③ 例會表單」的簽到表與名牌;委員與小天使不指定則自動指派
+                姓名/行業別/邀請人等會帶入「② 座位圖與表單」的簽到表與名牌;委員與小天使不指定則自動指派
               </span>
             </div>
             {weekly.guests.map((g, i) => {
@@ -1326,6 +1414,25 @@ function App() {
             </div>
           </div>
 
+          {/* 分會參訪 */}
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
+              分會參訪人數
+              <span style={{ fontWeight: 400, fontSize: 13, color: "#7A6E5A", marginLeft: 8 }}>
+                不用填名字;座位表於底排以「參訪」標示,會員與來賓優先內側排,底排含參訪最多 3 排
+              </span>
+            </div>
+            <input
+              type="number"
+              min="0"
+              style={{ ...inputStyle, width: 100, marginTop: 6 }}
+              value={weekly.visitors || 0}
+              onChange={(e) =>
+                upWeekly({ ...weekly, visitors: Math.max(0, parseInt(e.target.value, 10) || 0) })
+              }
+            />
+          </div>
+
           {/* 議程 ①-⑤ */}
           <div style={{ marginBottom: 26 }}>
             <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
@@ -1350,9 +1457,12 @@ function App() {
             ))}
           </div>
 
-          <button style={btn(true)} onClick={generate}>
+          <button style={btn(true)} onClick={() => requireAuth(generate)}>
             產生本週座位表 →
           </button>
+          <div style={{ fontSize: 12.5, color: "#7A6E5A", marginTop: 8 }}>
+            任何人皆可在此頁協助輸入本週資料(自動暫存於此瀏覽器);產生座位表與其他功能需管理員登入。
+          </div>
         </div>
       )}
 
@@ -1384,7 +1494,7 @@ function App() {
                     </button>
                   </>
                 )}
-                <button style={btn(true)} onClick={downloadMeetingSet}>📥 下載座位圖＋例會資料</button>
+                <button style={btn(true)} onClick={downloadMeetingSet}>📥 一鍵下載(座位圖+例會資料+簽到表+名牌)</button>
               </div>
               <div className="no-print" style={{ marginBottom: 8 }}>{legend}</div>
               {!viewing && (
@@ -1449,6 +1559,7 @@ function App() {
                         </div>
                         <div style={{ fontSize: 13, marginTop: 4, color: "#7A6E5A", fontWeight: 500 }}>
                           出席 {mapView.stats.attending}・代理 {mapView.stats.proxies}・缺席 {mapView.stats.absentNoProxy}
+                          {mapView.stats.visitors > 0 ? `・參訪 ${mapView.stats.visitors}` : ""}
                         </div>
                       </div>
                       <div style={{ marginTop: 16, textAlign: "left", fontSize: 15, fontWeight: 700, lineHeight: 2 }}>
@@ -1497,63 +1608,38 @@ function App() {
                   </div>
                 </div>
               </div>
-              {/* 例會資料:與座位圖同頁顯示,並隨「下載座位圖＋例會資料」一起輸出 */}
-              <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", margin: "18px 0 8px" }}>
-                例會資料(與座位圖一起下載;A4 橫向,出席率等空白欄位現場手寫):
+              {/* 例會表單:與座位圖同頁,隨「一鍵下載」一起輸出 */}
+              <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", margin: "18px 0 12px", lineHeight: 1.8 }}>
+                以下表單自動帶入「① 本週輸入」的資料,並隨上方「一鍵下載」同步輸出。
+                細節表單與簽到表為 A4 橫向、名牌為 A4 直向(一頁 8 張);出席率等空白欄位留待現場手寫。
               </div>
-              <div style={{ overflowX: "auto", background: "#EDE8DB", border: `1.5px solid ${C.seatBorder}`, borderRadius: 6, padding: 12 }}>
-                <div id="meeting-detail" style={{ width: "fit-content", boxShadow: "0 1px 6px rgba(0,0,0,.2)" }}>
-                  <DetailSheet data={sheetData} />
+              {sheetData.guests.length === 0 && (
+                <div className="no-print" style={{ background: C.amber, border: "1.5px solid #D9A93F", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14 }}>
+                  ⚠ 尚未輸入來賓,簽到表與名牌為空白格式。
                 </div>
-              </div>
+              )}
+              {[
+                { key: "detail", title: "例會細節表單", id: "meeting-detail", file: "例會資料", body: <DetailSheet data={sheetData} /> },
+                { key: "sign", title: "來賓簽到表", id: "sheet-sign", file: "來賓簽到表", body: <GuestSignSheet data={sheetData} /> },
+                { key: "tent", title: "來賓名牌", id: "sheet-tent", file: "來賓名牌", body: <NameBadges data={sheetData} /> },
+              ].map((s) => (
+                <div key={s.key} style={{ marginBottom: 26 }}>
+                  <div className="no-print" style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontWeight: 800, fontSize: 16 }}>{s.title}</span>
+                    <button
+                      style={{ ...btn(false), padding: "6px 14px" }}
+                      onClick={() => downloadPng(s.id, `${s.file}_${safeLabelOf(sheetData.label)}`)}
+                    >
+                      📥 單獨下載
+                    </button>
+                  </div>
+                  <div style={{ overflowX: "auto", border: `1.5px solid ${C.seatBorder}`, borderRadius: 6, background: "#EDE8DB", padding: 12 }}>
+                    <div id={s.id} style={{ width: "fit-content", boxShadow: "0 1px 6px rgba(0,0,0,.2)" }}>{s.body}</div>
+                  </div>
+                </div>
+              ))}
             </>
           )}
-        </div>
-      )}
-
-      {/* ===== 例會表單(名牌+簽到表) ===== */}
-      {tab === "sheets" && (
-        <div className="no-print" style={{ padding: 20 }}>
-          {viewing && (
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-              <span style={{ fontWeight: 800, fontSize: 15, background: C.yellow, border: `1.5px solid ${C.yellowBorder}`, borderRadius: 8, padding: "8px 14px" }}>
-                瀏覽儲存紀錄:{viewing.label} 的表單
-              </span>
-              <button style={btn(false)} onClick={() => { setViewing(null); setTab("saved"); }}>
-                ← 回儲存紀錄
-              </button>
-            </div>
-          )}
-          <div style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 14, lineHeight: 1.8 }}>
-            表單自動帶入「① 本週輸入」的資料(來賓的行業別、手機、E-mail、邀請人請在輸入時填寫)。
-            例會細節表單已改為在「② 座位圖」與座位圖一起下載。以下兩表為 A4 尺寸,可下載成圖檔列印——
-            來賓簽到表為橫向(A4 橫印),來賓名牌為直向(A4 直印,一頁 8 張)。
-          </div>
-          {sheetData.guests.length === 0 && (
-            <div style={{ background: C.amber, border: "1.5px solid #D9A93F", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14 }}>
-              ⚠ 尚未輸入來賓,簽到表與名牌為空白格式。
-            </div>
-          )}
-
-          {[
-            { key: "sign", title: "1. 來賓簽到表", id: "sheet-sign", file: "來賓簽到表", body: <GuestSignSheet data={sheetData} /> },
-            { key: "tent", title: "2. 來賓名牌", id: "sheet-tent", file: "來賓名牌", body: <NameBadges data={sheetData} /> },
-          ].map((s) => (
-            <div key={s.key} style={{ marginBottom: 30 }}>
-              <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontWeight: 800, fontSize: 16 }}>{s.title}</span>
-                <button
-                  style={{ ...btn(false), padding: "6px 14px" }}
-                  onClick={() => downloadPng(s.id, `${s.file}_${safeLabelOf(sheetData.label)}`)}
-                >
-                  📥 下載
-                </button>
-              </div>
-              <div style={{ overflowX: "auto", border: `1.5px solid ${C.seatBorder}`, borderRadius: 6, background: "#EDE8DB", padding: 12 }}>
-                <div id={s.id} style={{ width: "fit-content", boxShadow: "0 1px 6px rgba(0,0,0,.2)" }}>{s.body}</div>
-              </div>
-            </div>
-          ))}
         </div>
       )}
 
@@ -1563,7 +1649,7 @@ function App() {
           <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>儲存紀錄</div>
           <div style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 14, lineHeight: 1.8 }}>
             每次按「✓ 確認本週並存檔」都會把當週座位表與表單資料存到這裡(最多保留 40 筆)。
-            紀錄存在此裝置的瀏覽器內;「瀏覽」查看座位圖、「表單」查看當週三張表,「刪除」清掉不需要的紀錄。
+            紀錄存在此裝置的瀏覽器內;「瀏覽」查看當週座位圖與全部表單,「刪除」清掉不需要的紀錄。
           </div>
           {saved.length === 0 && (
             <div style={{ fontSize: 15 }}>目前沒有儲存的座位表。到「② 座位圖」按「✓ 確認本週並存檔」後就會出現在這裡。</div>
@@ -1587,25 +1673,15 @@ function App() {
               >
                 瀏覽
               </button>
-              {r.week && (
-                <button
-                  style={{ ...btn(false), padding: "6px 14px" }}
-                  onClick={() => {
-                    setViewing(r);
-                    setTab("sheets");
-                  }}
-                >
-                  表單
-                </button>
-              )}
               <button
                 style={{ ...btn(false), padding: "6px 14px", color: C.red, borderColor: C.red }}
-                onClick={() => {
-                  if (!window.confirm(`確定刪除 ${r.label} 的座位表紀錄?刪除後無法復原。`)) return;
-                  const list = saved.filter((x) => x.id !== r.id);
-                  setSaved(list);
-                  persist("gw-saved", list);
-                }}
+                onClick={() =>
+                  askConfirm(`確定刪除 ${r.label} 的座位表紀錄嗎?刪除後無法復原。`, () => {
+                    const list = saved.filter((x) => x.id !== r.id);
+                    setSaved(list);
+                    persist("gw-saved", list);
+                  })
+                }
               >
                 刪除
               </button>
@@ -1716,8 +1792,22 @@ function App() {
           {/* 拖曳指派:會員池 + 委員區 */}
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 22 }}>
             <div style={{ flex: 1, minWidth: 320, border: `1.5px solid ${C.seatBorder}`, background: "#fff", borderRadius: 8, padding: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
-                會員名單({roster.members.length} 位)——拖曳名字到上方職務格或右方委員區
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>
+                  會員名單({roster.members.length} 位)——拖曳名字到上方職務格或右方委員區,點 ✕ 刪除會員
+                </span>
+                <input
+                  style={{ ...inputStyle, width: 120, padding: "5px 8px", fontSize: 14 }}
+                  placeholder="新會員姓名"
+                  value={newMember}
+                  onChange={(e) => setNewMember(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addMember();
+                  }}
+                />
+                <button style={{ ...btn(false), padding: "5px 12px", fontSize: 14 }} onClick={addMember}>
+                  ＋ 新增會員
+                </button>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {roster.members.map((m) => (
@@ -1725,9 +1815,16 @@ function App() {
                     key={m}
                     draggable
                     onDragStart={(e) => e.dataTransfer.setData("text/plain", "roster:" + m)}
-                    style={{ background: C.seat, border: `1.5px solid ${C.seatBorder}`, borderRadius: 16, padding: "4px 10px", fontSize: 14, cursor: "grab" }}
+                    style={{ background: C.seat, border: `1.5px solid ${C.seatBorder}`, borderRadius: 16, padding: "4px 10px", fontSize: 14, cursor: "grab", display: "inline-flex", gap: 5, alignItems: "center" }}
                   >
                     {m}
+                    <button
+                      style={{ border: "none", background: "none", cursor: "pointer", fontWeight: 900, color: C.red, fontSize: 13, padding: 0 }}
+                      title="刪除會員"
+                      onClick={() => deleteMember(m)}
+                    >
+                      ✕
+                    </button>
                   </span>
                 ))}
                 {!roster.members.length && (
@@ -1818,46 +1915,69 @@ function App() {
             ＋ 新增綁定
           </button>
 
-          {/* 兩份名單 */}
-          <div style={{ display: "flex", gap: 26, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
-                輪換會員名單(年度續約)
-                <span style={{ fontWeight: 400, fontSize: 13, color: "#7A6E5A", marginLeft: 8 }}>
-                  {memberText.split("\n").map((s) => s.trim()).filter(Boolean).length} 位
-                </span>
-              </div>
-              <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 6, maxWidth: 340 }}>
-                一行一位;新會員加一行、提早離會刪該行。委員請填在右側委員名單,不必重複列在這裡。來賓不在此名單,每週於「① 本週輸入」增刪。
-              </div>
-              <textarea
-                style={{ ...inputStyle, width: 320, height: 300, lineHeight: 1.7 }}
-                value={memberText}
-                onChange={(e) => setMemberText(e.target.value)}
-              />
-            </div>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
-                委員名單
-                <span style={{ fontWeight: 400, fontSize: 13, color: "#7A6E5A", marginLeft: 8 }}>
-                  {committeeText.split("\n").map((s) => s.trim()).filter(Boolean).length} 位
-                </span>
-              </div>
-              <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 6, maxWidth: 300 }}>
-                一行一位,隨領導團隊改選一起更新。委員為獨立名單,排位時與會員一起輪換分桌,有來賓時優先指派至來賓桌。卸任後請把名字加回會員名單。
-              </div>
-              <textarea
-                style={{ ...inputStyle, width: 260, height: 300, lineHeight: 1.7 }}
-                value={committeeText}
-                onChange={(e) => setCommitteeText(e.target.value)}
-              />
-            </div>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <button style={btn(true)} onClick={saveRoster}>儲存名單</button>
-          </div>
           <div style={{ marginTop: 14, fontSize: 13, color: "#7A6E5A", lineHeight: 1.8 }}>
-            預設名單由 115/07/15 座位表照片辨識而來,辨識可能有錯字,請核對後儲存。
+            名單增刪與職務指派皆即時儲存,無需另按儲存。新會員以上方「＋ 新增會員」加入;
+            會員離會點名字籤上的 ✕ 刪除;委員以拖曳加入、點 ✕ 卸任回會員名單。
+          </div>
+        </div>
+      )}
+
+      {/* ===== 頁尾 ===== */}
+      <div className="no-print" style={{ textAlign: "center", padding: "26px 0 18px", fontSize: 13, color: "#7A6E5A" }}>
+        2026 Powered by 張婕
+      </div>
+
+      {/* ===== 確認對話框 ===== */}
+      {confirmDlg && (
+        <div className="no-print" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ background: "#fff", borderRadius: 10, padding: "22px 26px", maxWidth: 380, margin: 16, boxShadow: "0 8px 30px rgba(0,0,0,.3)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, lineHeight: 1.7, marginBottom: 18 }}>{confirmDlg.message}</div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button style={btn(false)} onClick={() => setConfirmDlg(null)}>取消</button>
+              <button
+                style={btn(true)}
+                onClick={() => {
+                  const f = confirmDlg.onConfirm;
+                  setConfirmDlg(null);
+                  f();
+                }}
+              >
+                確定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 管理員登入對話框 ===== */}
+      {loginDlg && (
+        <div className="no-print" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ background: "#fff", borderRadius: 10, padding: "24px 28px", width: 300, margin: 16, boxShadow: "0 8px 30px rgba(0,0,0,.3)" }}>
+            <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 6 }}>管理員登入</div>
+            <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 14 }}>
+              此功能僅限管理員;任何人皆可在「① 本週輸入」協助填資料。
+            </div>
+            <input
+              style={{ ...inputStyle, width: "100%", boxSizing: "border-box", marginBottom: 8 }}
+              placeholder="帳號"
+              value={loginUser}
+              onChange={(e) => setLoginUser(e.target.value)}
+            />
+            <input
+              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+              type="password"
+              placeholder="密碼"
+              value={loginPass}
+              onChange={(e) => setLoginPass(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") tryLogin();
+              }}
+            />
+            {loginErr && <div style={{ color: C.red, fontSize: 13, marginTop: 8 }}>{loginErr}</div>}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+              <button style={btn(false)} onClick={() => setLoginDlg(null)}>取消</button>
+              <button style={btn(true)} onClick={tryLogin}>登入</button>
+            </div>
           </div>
         </div>
       )}
