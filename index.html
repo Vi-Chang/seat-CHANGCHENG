@@ -716,12 +716,29 @@ function App() {
     const regular = [...lockedTables, ...memberTables];
     const totalAll = regular.length + proxyTables.length;
     const bottomCap = totalAll > 14 ? 4 : 2;
-    const bottomCount = Math.min(bottomCap, regular.length);
+    /* 參訪桌數先行計算:參訪可與會員同排,底排(含參訪)最多 3 排(6 桌);
+       底排總桌數為奇數時多拉一桌會員桌下來補滿該排,盡量填滿方形 */
+    const visitorCount = Math.max(0, parseInt(weekly.visitors, 10) || 0);
+    const needVTables = visitorCount > 0 ? Math.ceil(visitorCount / 3) : 0;
+    const vTables = Math.min(needVTables, 6);
+    if (needVTables > vTables)
+      warnings.push(
+        `參訪 ${visitorCount} 人超過底排容量(3 排共 18 位),超出 ${visitorCount - 18} 位請現場加椅調整`
+      );
+    let bottomCount = Math.min(bottomCap, regular.length, 6 - vTables);
+    while (
+      (bottomCount + vTables) % 2 === 1 &&
+      bottomCount + vTables < 6 &&
+      bottomCount < regular.length
+    )
+      bottomCount++;
     const P = proxyTables.length;
     const totalCol = regular.length - bottomCount + P;
     const per = [0, 0, 0, 0];
     for (let i = 0; i < 4; i++) per[i] = Math.floor(totalCol / 4);
-    for (let i = 0; i < totalCol % 4; i++) per[i]++;
+    /* 餘數優先補內側(LI/RI)再右外(RO)最後左外(LO):會員可往右邊區塊補空缺,盡量填滿方形 */
+    const fillOrder = [1, 2, 3, 0];
+    for (let i = 0; i < totalCol % 4; i++) per[fillOrder[i]]++;
     if (per[3] < P) {
       let need = P - per[3];
       per[3] = P;
@@ -782,24 +799,14 @@ function App() {
       if (t.type === "guest" && i % 2 === 0) t.seats.reverse();
     });
 
-    /* 分會參訪桌:不記名、一律附加在底排最後(會員與來賓優先內側排);
-       有參訪時底排最多 3 排(6 桌) */
-    const visitorCount = Math.max(0, parseInt(weekly.visitors, 10) || 0);
-    if (visitorCount > 0) {
-      const roomLeft = Math.max(0, 6 - slots.bottom.length);
-      const needTables = Math.ceil(visitorCount / 3);
-      const vTables = Math.min(needTables, roomLeft);
-      if (needTables > vTables)
-        warnings.push(
-          `參訪 ${visitorCount} 人需 ${needTables} 桌,底排(含參訪最多 3 排)僅能再放 ${roomLeft} 桌,超出部分請現場加椅調整`
-        );
-      for (let i = 0; i < vTables; i++) {
-        const n = Math.min(3, visitorCount - i * 3);
-        slots.bottom.push({
-          seats: Array.from({ length: n }, () => ({ name: "參訪", kind: "visitor" })),
-          type: "visitor",
-        });
-      }
+    /* 分會參訪桌:不記名、附加在底排會員/來賓桌之後(同排可混坐,會員與來賓在內側);
+       桌數已於前面與 bottomCount 一併計算 */
+    for (let i = 0; i < vTables; i++) {
+      const n = Math.max(1, Math.min(3, visitorCount - i * 3));
+      slots.bottom.push({
+        seats: Array.from({ length: n }, () => ({ name: "參訪", kind: "visitor" })),
+        type: "visitor",
+      });
     }
 
     const fixedCount =
