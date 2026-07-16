@@ -907,6 +907,103 @@ function App() {
     );
   };
 
+  /* ---------- 屆期交接:一鍵卸任與拖曳指派 ---------- */
+  const syncRosterTexts = (r) => {
+    updateRoster(r);
+    setMemberText(r.members.join("\n"));
+    setCommitteeText((r.committee || []).join("\n"));
+  };
+  const retireAll = () => {
+    if (!window.confirm("確定卸任所有職務?主席排、電音、大使、委員將全部清空,名字回到會員名單。")) return;
+    const names = [
+      ...roster.chairRow.map((c) => c.name.trim()),
+      ...roster.sound.map((s) => (s || "").trim()),
+      ...roster.ambassadors.map((a) => (a || "").trim()),
+      ...(roster.committee || []).map((s) => s.trim()),
+    ].filter(Boolean);
+    const members = [...new Set([...roster.members.map((s) => s.trim()).filter(Boolean), ...names])];
+    syncRosterTexts({
+      ...roster,
+      members,
+      chairRow: roster.chairRow.map((c) => ({ ...c, name: "" })),
+      sound: roster.sound.map(() => ""),
+      ambassadors: roster.ambassadors.map(() => ""),
+      committee: [],
+    });
+    setMsg(`已卸任所有職務,${names.length} 位回到會員名單。把會員名字拖曳到職務格即可指派下一屆。`);
+  };
+  const dragName = (e) => {
+    const d = e.dataTransfer.getData("text/plain");
+    return d && d.indexOf("roster:") === 0 ? d.slice(7) : null;
+  };
+  const dropProps = (fn) => ({
+    onDragOver: (e) => e.preventDefault(),
+    onDrop: (e) => {
+      e.preventDefault();
+      const n = dragName(e);
+      if (n) fn(n);
+    },
+  });
+  const assignTo = (name, rolePatch, displaced, roleLabel) => {
+    let members = roster.members.filter((m) => m.trim() !== name);
+    if (displaced && displaced !== name && !members.some((m) => m.trim() === displaced))
+      members = [...members, displaced];
+    syncRosterTexts({ ...roster, ...rolePatch, members });
+    setMsg(
+      `已指派「${name}」為${roleLabel}` +
+        (displaced && displaced !== name ? `,「${displaced}」回到會員名單。` : "。")
+    );
+  };
+  const releaseTo = (name, rolePatch, roleLabel) => {
+    const members = roster.members.some((m) => m.trim() === name)
+      ? roster.members
+      : [...roster.members, name];
+    syncRosterTexts({ ...roster, ...rolePatch, members });
+    setMsg(`「${name}」已卸任${roleLabel},回到會員名單。`);
+  };
+  const dropChair = (i, name) =>
+    assignTo(
+      name,
+      { chairRow: roster.chairRow.map((c, x) => (x === i ? { ...c, name } : c)) },
+      roster.chairRow[i].name.trim(),
+      roster.chairRow[i].role
+    );
+  const dropSound = (i, name) =>
+    assignTo(
+      name,
+      { sound: roster.sound.map((n, x) => (x === i ? name : n)) },
+      (roster.sound[i] || "").trim(),
+      `電音 ${i + 1}`
+    );
+  const dropAmb = (i, name) =>
+    assignTo(
+      name,
+      { ambassadors: roster.ambassadors.map((n, x) => (x === i ? name : n)) },
+      (roster.ambassadors[i] || "").trim(),
+      i === 0 ? "大使" : "助理大使"
+    );
+  const dropCommittee = (name) => {
+    if ((roster.committee || []).some((c) => c.trim() === name)) return;
+    assignTo(name, { committee: [...(roster.committee || []), name] }, "", "委員");
+  };
+  const unassignChair = (i) => {
+    const old = roster.chairRow[i].name.trim();
+    if (!old) return;
+    releaseTo(old, { chairRow: roster.chairRow.map((c, x) => (x === i ? { ...c, name: "" } : c)) }, roster.chairRow[i].role);
+  };
+  const unassignSound = (i) => {
+    const old = (roster.sound[i] || "").trim();
+    if (!old) return;
+    releaseTo(old, { sound: roster.sound.map((n, x) => (x === i ? "" : n)) }, `電音 ${i + 1}`);
+  };
+  const unassignAmb = (i) => {
+    const old = (roster.ambassadors[i] || "").trim();
+    if (!old) return;
+    releaseTo(old, { ambassadors: roster.ambassadors.map((n, x) => (x === i ? "" : n)) }, i === 0 ? "大使" : "助理大使");
+  };
+  const unassignCommittee = (name) =>
+    releaseTo(name, { committee: (roster.committee || []).filter((c) => c.trim() !== name) }, "委員");
+
   const upWeekly = (w) => setWeekly(w);
   /* 選單名單 = 會員 ∪ 委員,扣除固定席 */
   const fixedNames = new Set(
@@ -1510,13 +1607,34 @@ function App() {
       {/* ===== 名單管理 ===== */}
       {tab === "roster" && (
         <div className="no-print" style={{ padding: 20, maxWidth: 820 }}>
-          <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
-            領導團隊與電音(每半年改選,直接修改姓名即可)
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 4 }}>
+            <span style={{ fontWeight: 800, fontSize: 16 }}>領導團隊與電音(每半年改選)</span>
+            <button
+              style={{ ...btn(false), padding: "6px 14px", color: C.red, borderColor: C.red }}
+              onClick={retireAll}
+            >
+              ⟲ 一鍵卸任所有職務
+            </button>
+          </div>
+          <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 8 }}>
+            改選時先按「一鍵卸任」讓所有人回到會員名單,再從下方「會員名單」把名字拖曳到職務格或委員區;
+            點職務旁的 ✕ 可單獨卸任。也可以直接在格內打字修改。
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 8, marginTop: 8 }}>
             {roster.chairRow.map((c, i) => (
-              <div key={i}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 3 }}>{c.role}</div>
+              <div key={i} {...dropProps((n) => dropChair(i, n))}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 3 }}>
+                  {c.role}
+                  {c.name.trim() && (
+                    <button
+                      style={{ border: "none", background: "none", color: C.red, cursor: "pointer", fontWeight: 900, marginLeft: 4, fontSize: 13 }}
+                      title="卸任,回到會員名單"
+                      onClick={() => unassignChair(i)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
                 <input
                   style={{ ...inputStyle, width: 120 }}
                   value={c.name}
@@ -1531,8 +1649,19 @@ function App() {
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
             {roster.sound.map((n, i) => (
-              <div key={"s" + i}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 3 }}>電音 {i + 1}</div>
+              <div key={"s" + i} {...dropProps((nm) => dropSound(i, nm))}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 3 }}>
+                  電音 {i + 1}
+                  {(n || "").trim() && (
+                    <button
+                      style={{ border: "none", background: "none", color: C.red, cursor: "pointer", fontWeight: 900, marginLeft: 4, fontSize: 13 }}
+                      title="卸任,回到會員名單"
+                      onClick={() => unassignSound(i)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
                 <input
                   style={{ ...inputStyle, width: 120 }}
                   value={n}
@@ -1545,8 +1674,19 @@ function App() {
               </div>
             ))}
             {roster.ambassadors.map((n, i) => (
-              <div key={"a" + i}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.blueBorder, marginBottom: 3 }}>{i === 0 ? "大使" : "助理大使"}</div>
+              <div key={"a" + i} {...dropProps((nm) => dropAmb(i, nm))}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.blueBorder, marginBottom: 3 }}>
+                  {i === 0 ? "大使" : "助理大使"}
+                  {(n || "").trim() && (
+                    <button
+                      style={{ border: "none", background: "none", color: C.red, cursor: "pointer", fontWeight: 900, marginLeft: 4, fontSize: 13 }}
+                      title="卸任,回到會員名單"
+                      onClick={() => unassignAmb(i)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
                 <input
                   style={{ ...inputStyle, width: 120 }}
                   value={n}
@@ -1559,8 +1699,57 @@ function App() {
               </div>
             ))}
           </div>
-          <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 22 }}>
+          <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 14 }}>
             大使與助理大使固定同桌、位置不變,系統會自動安排一位會員與他們同桌(每週輪換)。
+          </div>
+
+          {/* 拖曳指派:會員池 + 委員區 */}
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 22 }}>
+            <div style={{ flex: 1, minWidth: 320, border: `1.5px solid ${C.seatBorder}`, background: "#fff", borderRadius: 8, padding: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+                會員名單({roster.members.length} 位)——拖曳名字到上方職務格或右方委員區
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {roster.members.map((m) => (
+                  <span
+                    key={m}
+                    draggable
+                    onDragStart={(e) => e.dataTransfer.setData("text/plain", "roster:" + m)}
+                    style={{ background: C.seat, border: `1.5px solid ${C.seatBorder}`, borderRadius: 16, padding: "4px 10px", fontSize: 14, cursor: "grab" }}
+                  >
+                    {m}
+                  </span>
+                ))}
+                {!roster.members.length && (
+                  <span style={{ fontSize: 13, color: "#7A6E5A" }}>會員名單為空</span>
+                )}
+              </div>
+            </div>
+            <div style={{ width: 260 }} {...dropProps(dropCommittee)}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+                委員({(roster.committee || []).length} 位)——拖曳到此加入
+              </div>
+              <div style={{ border: `2px dashed ${C.yellowBorder}`, background: "#FFFDF2", borderRadius: 8, padding: 8, minHeight: 64, display: "flex", flexWrap: "wrap", gap: 6, alignContent: "flex-start" }}>
+                {(roster.committee || []).map((m) => (
+                  <span
+                    key={m}
+                    style={{ background: C.yellow, border: `1.5px solid ${C.yellowBorder}`, borderRadius: 16, padding: "4px 10px", fontSize: 14, display: "inline-flex", gap: 5, alignItems: "center" }}
+                  >
+                    {m}
+                    <button
+                      style={{ border: "none", background: "none", cursor: "pointer", fontWeight: 900, color: C.red, fontSize: 13 }}
+                      title="卸任,回到會員名單"
+                      onClick={() => unassignCommittee(m)}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+                {!(roster.committee || []).length && (
+                  <span style={{ fontSize: 13, color: "#7A6E5A" }}>把會員拖曳到這裡加入委員</span>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* 新人-導師 */}
