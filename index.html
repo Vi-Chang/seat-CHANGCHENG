@@ -32,18 +32,19 @@ const DEFAULT_ROSTER = {
     { role: "副主席", name: "張婕" },
     { role: "教育協調員", name: "陳佩妏" },
   ],
-  sound: ["鄭志榮", "鄧力瑋"],
+  sound: ["鄭志榮", "鄧力瑋", ""],
   ambassadors: ["", ""],
   /* 委員名單(隨領導團隊改選一起更新) */
   committee: ["張立予", "羅舒妍", "許淑媛", "李翠松", "鄧力瑋", "吳俊霖", "曹珩堉", "胡芸榛"],
   /* 新人-導師綁定(約 8 週,期滿刪除) */
   mentorPairs: [],
+  /* 會員名單不含委員(委員為獨立名單,排位時一起輪換) */
   members: [
-    "魏軒壽","王文正","邱彥傑","陳師平","朱苡菱","蔡瑋鉱","羅舒妍","江品萱","玲唯齊",
-    "張東東","郭亭君","李鴻毅","鄭淑宜","許淑媛","蔡佩玲","翁啓信","李翠松",
-    "曹珩堉","王彥萍","鄭建通","鍾宇傑","胡芸榛","周珈汶","張煥晨","劉宜賢",
+    "魏軒壽","王文正","邱彥傑","陳師平","朱苡菱","蔡瑋鉱","江品萱","玲唯齊",
+    "郭亭君","李鴻毅","鄭淑宜","蔡佩玲","翁啓信",
+    "王彥萍","鄭建通","鍾宇傑","周珈汶","張煥晨","劉宜賢",
     "張維麟","曾智源","關崇益","黃致榮","謝宗杰","呂秉軒","陳麗惠","趙一蒨","于美云",
-    "張立予","張力文","陳秋榮","吳俊霖","林宗儒","石沛晴","趙祥吉",
+    "張力文","陳秋榮","林宗儒","石沛晴","趙祥吉",
   ],
 };
 
@@ -426,6 +427,10 @@ function App() {
           const parsed = { ...DEFAULT_ROSTER, ...JSON.parse(r.value) };
           if (!Array.isArray(parsed.committee)) parsed.committee = DEFAULT_ROSTER.committee;
           if (!Array.isArray(parsed.mentorPairs)) parsed.mentorPairs = [];
+          if (!Array.isArray(parsed.sound)) parsed.sound = [...DEFAULT_ROSTER.sound];
+          while (parsed.sound.length < 3) parsed.sound.push(""); // 電音固定 3 格(可留空)
+          const cSet = new Set(parsed.committee.map((s) => (s || "").trim()));
+          parsed.members = (parsed.members || []).filter((m) => !cSet.has((m || "").trim())); // 委員為獨立名單
           setRoster(parsed);
           setMemberText(parsed.members.join("\n"));
           setCommitteeText(parsed.committee.join("\n"));
@@ -479,7 +484,18 @@ function App() {
   /* ---------- 產生座位 ---------- */
   const generate = () => {
     const warnings = [];
-    const members = roster.members.map((s) => s.trim()).filter(Boolean);
+    /* 輪換名單 = 會員 ∪ 委員(委員為獨立名單),扣除固定席(主席排/電音/大使) */
+    const committeeAll = (roster.committee || []).map((s) => s.trim()).filter(Boolean);
+    const fixedNames = new Set(
+      [
+        ...roster.chairRow.map((c) => c.name.trim()),
+        ...roster.sound.map((s) => (s || "").trim()),
+        ...roster.ambassadors.map((a) => (a || "").trim()),
+      ].filter(Boolean)
+    );
+    const members = [
+      ...new Set([...roster.members.map((s) => s.trim()).filter(Boolean), ...committeeAll]),
+    ].filter((n) => !fixedNames.has(n));
     const memberSet = new Set(members);
     const absent = new Set(weekly.absent);
     const proxied = new Set(weekly.proxies.filter((m) => memberSet.has(m) && !absent.has(m)));
@@ -507,7 +523,6 @@ function App() {
 
     /* 可指派名單(逐步扣除已被指定/指派者) */
     const avail = new Set(attendSet);
-    const committeeAll = (roster.committee || []).map((s) => s.trim()).filter(Boolean);
     const committeeAttending = () =>
       committeeAll.filter((c) => avail.has(c) && !bondOf.has(c));
 
@@ -874,28 +889,39 @@ function App() {
       txt.split("\n").map((s) => s.trim()).filter(Boolean).forEach((m) => seen.add(m));
       return [...seen];
     };
-    const members = parseLines(memberText);
+    const members0 = parseLines(memberText);
     const committee = parseLines(committeeText);
-    const memberSet = new Set(members);
-    const notMember = committee.filter((c) => !memberSet.has(c));
+    const cSet = new Set(committee);
+    const moved = members0.filter((m) => cSet.has(m));
+    const members = members0.filter((m) => !cSet.has(m));
     const r = { ...roster, members, committee };
     setRoster(r);
     setMemberText(members.join("\n"));
     setCommitteeText(committee.join("\n"));
     persist("gw-roster", r);
     setMsg(
-      `名單已儲存:會員 ${members.length} 位、委員 ${committee.length} 位。` +
-        (notMember.length
-          ? `注意:委員「${notMember.join("、")}」不在會員名單中(字不一致或為固定席),排位時將無法自動指派,請核對用字。`
+      `名單已儲存:會員 ${members.length} 位、委員 ${committee.length} 位(排位時會員與委員一起輪換分桌)。` +
+        (moved.length
+          ? `「${moved.join("、")}」已自動從會員名單移出(委員為獨立名單);委員卸任後請記得把名字加回會員名單。`
           : "")
     );
   };
 
   const upWeekly = (w) => setWeekly(w);
-  const memberOptions = roster.members.map((s) => s.trim()).filter(Boolean);
+  /* 選單名單 = 會員 ∪ 委員,扣除固定席 */
+  const fixedNames = new Set(
+    [
+      ...roster.chairRow.map((c) => c.name.trim()),
+      ...roster.sound.map((s) => (s || "").trim()),
+      ...roster.ambassadors.map((a) => (a || "").trim()),
+    ].filter(Boolean)
+  );
+  const memberOptions = [
+    ...new Set([...roster.members, ...(roster.committee || [])].map((s) => s.trim()).filter(Boolean)),
+  ].filter((n) => !fixedNames.has(n));
   const takenAbsent = new Set([...weekly.absent, ...weekly.proxies]);
   const availableOptions = memberOptions.filter((m) => !takenAbsent.has(m));
-  const committeeOptions = (roster.committee || []).filter((c) => !takenAbsent.has(c));
+  const committeeOptions = (roster.committee || []).filter((c) => !takenAbsent.has(c) && !fixedNames.has(c));
 
   const tabBtn = (id, label) => (
     <button
@@ -985,7 +1011,7 @@ function App() {
           guests: weekly.guests.filter((g) => g.name && g.name.trim()),
           proxies: weekly.proxies,
           absent: weekly.absent,
-          memberTotal: roster.members.map((s) => s.trim()).filter(Boolean).length + fixedCount,
+          memberTotal: memberOptions.length + fixedCount,
         };
 
   return (
@@ -1603,7 +1629,7 @@ function App() {
                 </span>
               </div>
               <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 6, maxWidth: 340 }}>
-                一行一位;新會員加一行、提早離會刪該行。來賓不在此名單,每週於「① 本週輸入」增刪。
+                一行一位;新會員加一行、提早離會刪該行。委員請填在右側委員名單,不必重複列在這裡。來賓不在此名單,每週於「① 本週輸入」增刪。
               </div>
               <textarea
                 style={{ ...inputStyle, width: 320, height: 300, lineHeight: 1.7 }}
@@ -1619,7 +1645,7 @@ function App() {
                 </span>
               </div>
               <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 6, maxWidth: 300 }}>
-                一行一位,隨領導團隊改選一起更新。用字須與會員名單完全一致,系統才能自動指派。
+                一行一位,隨領導團隊改選一起更新。委員為獨立名單,排位時與會員一起輪換分桌,有來賓時優先指派至來賓桌。卸任後請把名字加回會員名單。
               </div>
               <textarea
                 style={{ ...inputStyle, width: 260, height: 300, lineHeight: 1.7 }}
