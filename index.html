@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>長城分會・例會排位系統</title>
+<title>長城鈦金名人堂分會・例會排位系統</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -275,7 +275,7 @@ function DetailSheet({ data }) {
       </div>
       <div style={{ flex: 1, fontSize: 25 }}>
         <div style={{ fontSize: 31, fontWeight: 700, textDecoration: "underline", marginBottom: 24 }}>
-          長城鈦金 {d} 例會
+          長城鈦金名人堂分會 {d} 例會
         </div>
         <div style={line}>會員數:{data.memberTotal} 人</div>
         <div style={{ ...line, marginTop: 20 }}>
@@ -315,7 +315,7 @@ function GuestSignSheet({ data }) {
   return (
     <div style={{ width: 1123, boxSizing: "border-box", background: "#fff", color: "#000", padding: "40px 46px 28px", fontFamily: KAI }}>
       <div style={{ textAlign: "center", fontSize: 26, fontWeight: 700, letterSpacing: 2, marginBottom: 22 }}>
-        BNI 長城鈦金分會 來賓簽到 {d} 日
+        BNI 長城鈦金名人堂分會 來賓簽到 {d} 日
       </div>
       <table style={{ borderCollapse: "collapse", width: "100%" }}>
         <thead>
@@ -970,7 +970,7 @@ function App() {
       .catch(() => window.print());
   };
   const downloadMap = () =>
-    downloadPng("seatmap", `長城分會座位表_${safeLabelOf(mapView && mapView.label)}`);
+    downloadPng("seatmap", `長城鈦金名人堂分會座位表_${safeLabelOf(mapView && mapView.label)}`);
 
   /* 三張表資料來源:瀏覽儲存紀錄時用快照,否則用本週輸入 */
   const fixedCount =
@@ -999,7 +999,7 @@ function App() {
       {/* 頁首 */}
       <div className="no-print" style={{ background: "#fff", borderBottom: `3px solid ${C.red}`, padding: "14px 20px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 2 }}>長城分會・例會排位系統</div>
+          <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 2 }}>長城鈦金名人堂分會・例會排位系統</div>
           <div style={{ fontSize: 12.5, color: "#7A6E5A", marginTop: 2 }}>
             {history ? `已存上週(${history.label})分桌紀錄,排位自動避開` : "尚無歷史紀錄,第一次排位為隨機分桌"}
           </div>
@@ -1319,7 +1319,7 @@ function App() {
                         <div style={{ fontSize: 14 }}>主題簡報區</div>
                       </div>
                       <div style={{ marginTop: 18, textAlign: "center", fontWeight: 800, fontSize: 17 }}>
-                        長城分會 {mapView.label} 例會
+                        長城鈦金名人堂分會 {mapView.label} 例會
                         <div style={{ fontSize: 15, marginTop: 4 }}>
                           會員:{mapView.stats.totalMembers}人 來賓:{mapView.stats.guests}位
                         </div>
