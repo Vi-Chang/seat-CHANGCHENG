@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>長城分會・例會排位系統</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>html,body,#root{margin:0;padding:0}</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+window.storage = {
+  get: async function(k){ var v = localStorage.getItem("gw:"+k); if(v===null) throw new Error("key not found: "+k); return {key:k, value:v}; },
+  set: async function(k,v){ localStorage.setItem("gw:"+k, v); return {key:k, value:v}; },
+  delete: async function(k){ localStorage.removeItem("gw:"+k); return {key:k, deleted:true}; },
+  list: async function(){ var ks=[]; for(var i=0;i<localStorage.length;i++){var key=localStorage.key(i); if(key.indexOf("gw:")===0) ks.push(key.slice(3));} return {keys:ks}; }
+};
+</script>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect } = React;
+
+/* ---------------- 預設名單(依 115/07/15 座位表照片辨識,可於「名單管理」修改) ---------------- */
+const DEFAULT_ROSTER = {
+  chairRow: [
+    { role: "活動協調員", name: "鄭御里" },
+    { role: "秘書財務", name: "謝雯筑" },
+    { role: "主席", name: "王定廣" },
+    { role: "副主席", name: "張婕" },
+    { role: "教育協調員", name: "陳佩妏" },
+  ],
+  sound: ["鄭志榮", "鄧力瑋"],
+  ambassadors: ["", ""],
+  /* 委員名單(隨領導團隊改選一起更新) */
+  committee: ["張立予", "羅舒妍", "許淑媛", "李翠松", "鄧力瑋", "吳俊霖", "曹珩堉", "胡芸榛"],
+  /* 新人-導師綁定(約 8 週,期滿刪除) */
+  mentorPairs: [],
+  members: [
+    "魏軒壽","王文正","邱彥傑","陳師平","朱苡菱","蔡瑋鉱","羅舒妍","江品萱","玲唯齊",
+    "張東東","郭亭君","李鴻毅","鄭淑宜","許淑媛","蔡佩玲","翁啓信","李翠松",
+    "曹珩堉","王彥萍","鄭建通","鍾宇傑","胡芸榛","周珈汶","張煥晨","劉宜賢",
+    "張維麟","曾智源","關崇益","黃致榮","謝宗杰","呂秉軒","陳麗惠","趙一蒨","于美云",
+    "張立予","張力文","陳秋榮","吳俊霖","林宗儒","石沛晴","趙祥吉",
+  ],
+};
+
+const AGENDA = ["教育培訓", "總政策", "本週主題簡報", "下週主題簡報", "引薦查核"];
+const CIRCLED = ["①", "②", "③", "④", "⑤"];
+
+/* ---------------- 工具 ---------------- */
+const pk = (a, b) => (a < b ? a + "|" + b : b + "|" + a);
+const shuffle = (arr) => {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+const minguoToday = () => {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear() - 1911}/${mm}/${dd}`;
+};
+const emptyWeekly = () => ({
+  label: minguoToday(),
+  guests: [], // {name, committee, angel}
+  proxies: [], // 由代理出席的「會員」名字
+  absent: [],
+  agenda: ["", "", "", "", ""],
+});
+
+const buildPairs = (groups) => {
+  const s = new Set();
+  (groups || []).forEach((g) =>
+    g.forEach((a, i) => g.slice(i + 1).forEach((b) => s.add(pk(a, b))))
+  );
+  return s;
+};
+
+/* 會員分桌(以「單位」為基礎:新人+導師為不可拆散的 2 人單位,其餘為 1 人單位)
+   多次隨機重排,貪婪避開上週同桌,取衝突最少解 */
+function groupUnits(units, lastPairs, bondOf) {
+  const conflictOf = (table, unit) => {
+    let c = 0;
+    unit.forEach((p) =>
+      table.forEach((q) => {
+        if (lastPairs.has(pk(p, q))) c++;
+      })
+    );
+    return c;
+  };
+  let best = null;
+  for (let t = 0; t < 400; t++) {
+    const remaining = shuffle(units.map((u) => [...u]));
+    const tables = [];
+    let conflicts = 0;
+    const repeated = [];
+    while (remaining.length) {
+      const table = [...remaining.shift()];
+      while (table.length < 3 && remaining.length) {
+        let idx = remaining.findIndex(
+          (u) => table.length + u.length <= 3 && conflictOf(table, u) === 0
+        );
+        if (idx === -1)
+          idx = remaining.findIndex((u) => table.length + u.length <= 3);
+        if (idx === -1) break; // 剩餘皆為 2 人單位而桌上已有 2 人,本桌 2 人成桌
+        const u = remaining.splice(idx, 1)[0];
+        const c = conflictOf(table, u);
+        if (c > 0) {
+          conflicts += c;
+          u.forEach((p) =>
+            table.forEach((q) => {
+              if (lastPairs.has(pk(p, q))) repeated.push([p, q]);
+            })
+          );
+        }
+        table.push(...u);
+      }
+      tables.push(table);
+    }
+    /* 落單處理:寧可 2+2,不讓 1 人落單(不可拆散新人-導師) */
+    const last = tables[tables.length - 1];
+    if (last && last.length === 1 && tables.length >= 2) {
+      for (const donor of [...tables].reverse()) {
+        if (donor === last || donor.length !== 3) continue;
+        let di = donor.findIndex(
+          (p) => !bondOf.has(p) && !lastPairs.has(pk(p, last[0]))
+        );
+        if (di === -1) di = donor.findIndex((p) => !bondOf.has(p));
+        if (di >= 0) {
+          last.push(donor.splice(di, 1)[0]);
+          break;
+        }
+      }
+    }
+    if (!best || conflicts < best.conflicts) best = { tables, conflicts, repeated };
+    if (best.conflicts === 0) break;
+  }
+  return best || { tables: [], conflicts: 0, repeated: [] };
+}
+
+/* ---------------- 樣式 ---------------- */
+const FONT = '"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+const C = {
+  ink: "#2A2420",
+  paper: "#FAF7EF",
+  seat: "#FCF3D6",
+  seatBorder: "#8F7C4E",
+  red: "#A6221A",
+  guest: "#F5BFDA",
+  guestBorder: "#B4438A",
+  proxy: "#DCEFD2",
+  proxyBorder: "#5E8A4A",
+  blue: "#C9D9EC",
+  blueBorder: "#46618A",
+  yellow: "#FBEB8A",
+  yellowBorder: "#B99B1F",
+  amber: "#FFF6E0",
+};
+
+const seatStyle = (kind) => ({
+  width: 108,
+  padding: "7px 4px",
+  textAlign: "center",
+  fontWeight: 700,
+  fontSize: 15,
+  letterSpacing: 1,
+  background:
+    kind === "guest"
+      ? C.guest
+      : kind === "proxy"
+      ? C.proxy
+      : kind === "amb"
+      ? C.blue
+      : kind === "committee" || kind === "angel"
+      ? C.yellow
+      : C.seat,
+  border: `1.5px solid ${
+    kind === "guest"
+      ? C.guestBorder
+      : kind === "proxy"
+      ? C.proxyBorder
+      : kind === "amb"
+      ? C.blueBorder
+      : kind === "committee" || kind === "angel"
+      ? C.yellowBorder
+      : C.seatBorder
+  }`,
+  borderRadius: 3,
+  color: C.ink,
+  boxShadow: "0 1px 0 rgba(0,0,0,.12)",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+});
+
+const btn = (primary) => ({
+  padding: "9px 18px",
+  borderRadius: 8,
+  border: primary ? "none" : `1.5px solid ${C.seatBorder}`,
+  background: primary ? C.red : "#fff",
+  color: primary ? "#fff" : C.ink,
+  fontWeight: 700,
+  fontSize: 15,
+  cursor: "pointer",
+  fontFamily: FONT,
+});
+
+const inputStyle = {
+  padding: "8px 10px",
+  border: "1.5px solid #C8BC9A",
+  borderRadius: 6,
+  fontSize: 15,
+  fontFamily: FONT,
+  background: "#fff",
+  color: C.ink,
+};
+
+const keyOf = (z, t, s) => `${z}.${t}.${s}`;
+const parseKey = (k) => {
+  const [z, t, s] = k.split(".");
+  return { z, t: +t, s: +s };
+};
+
+function App() {
+  const [roster, setRoster] = useState(DEFAULT_ROSTER);
+  const [memberText, setMemberText] = useState(DEFAULT_ROSTER.members.join("\n"));
+  const [committeeText, setCommitteeText] = useState(DEFAULT_ROSTER.committee.join("\n"));
+  const [history, setHistory] = useState(null);
+  const [weekly, setWeekly] = useState(emptyWeekly());
+  const [result, setResult] = useState(null);
+  const [tab, setTab] = useState("week");
+  const [confirmArm, setConfirmArm] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [sel, setSel] = useState(null);
+
+  /* 載入儲存資料 */
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await window.storage.get("gw-roster");
+        if (r) {
+          const parsed = { ...DEFAULT_ROSTER, ...JSON.parse(r.value) };
+          if (!Array.isArray(parsed.committee)) parsed.committee = DEFAULT_ROSTER.committee;
+          if (!Array.isArray(parsed.mentorPairs)) parsed.mentorPairs = [];
+          setRoster(parsed);
+          setMemberText(parsed.members.join("\n"));
+          setCommitteeText(parsed.committee.join("\n"));
+        }
+      } catch (e) {}
+      try {
+        const h = await window.storage.get("gw-history");
+        if (h) setHistory(JSON.parse(h.value));
+      } catch (e) {}
+      try {
+        const w = await window.storage.get("gw-weekly");
+        if (w) {
+          const parsed = { ...emptyWeekly(), ...JSON.parse(w.value) };
+          if (!parsed.agenda || parsed.agenda.length !== 5)
+            parsed.agenda = ["", "", "", "", ""];
+          parsed.proxies = (parsed.proxies || [])
+            .map((p) => (typeof p === "string" ? p : (p && p.forMember) || ""))
+            .filter(Boolean);
+          parsed.guests = (parsed.guests || []).map((g) => ({
+            name: g.name || "",
+            committee: g.committee || "",
+            angel: g.angel || "",
+          }));
+          setWeekly(parsed);
+        }
+      } catch (e) {}
+    })();
+  }, []);
+
+  const persist = (key, obj) => {
+    try {
+      window.storage.set(key, JSON.stringify(obj)).catch(() => {});
+    } catch (e) {}
+  };
+  const updateRoster = (r) => {
+    setRoster(r);
+    persist("gw-roster", r);
+  };
+
+  /* ---------- 產生座位 ---------- */
+  const generate = () => {
+    const warnings = [];
+    const members = roster.members.map((s) => s.trim()).filter(Boolean);
+    const memberSet = new Set(members);
+    const absent = new Set(weekly.absent);
+    const proxied = new Set(weekly.proxies.filter((m) => memberSet.has(m) && !absent.has(m)));
+    const lastPairs = buildPairs(history ? history.groups : []);
+
+    /* 新人-導師綁定:雙方都出席才生效 */
+    const attendSet = new Set(members.filter((m) => !absent.has(m) && !proxied.has(m)));
+    const bondOf = new Map();
+    (roster.mentorPairs || []).forEach((p) => {
+      const a = (p.newbie || "").trim();
+      const b = (p.mentor || "").trim();
+      if (!a || !b || a === b) return;
+      if (!attendSet.has(a) || !attendSet.has(b)) {
+        if (memberSet.has(a) && memberSet.has(b))
+          warnings.push(`新人「${a}」與導師「${b}」有一方本週未出席,綁定本週暫停`);
+        return;
+      }
+      if (bondOf.has(a) || bondOf.has(b)) {
+        warnings.push(`「${a}/${b}」與其他綁定重疊,僅保留先設定者`);
+        return;
+      }
+      bondOf.set(a, b);
+      bondOf.set(b, a);
+    });
+
+    /* 可指派名單(逐步扣除已被指定/指派者) */
+    const avail = new Set(attendSet);
+    const committeeAll = (roster.committee || []).map((s) => s.trim()).filter(Boolean);
+    const committeeAttending = () =>
+      committeeAll.filter((c) => avail.has(c) && !bondOf.has(c));
+
+    const takeName = (n) => {
+      avail.delete(n);
+      return n;
+    };
+    const autoAngel = () => {
+      const cSet = new Set(committeeAll);
+      let cand = [...avail].filter((m) => !bondOf.has(m) && !cSet.has(m));
+      if (!cand.length) cand = [...avail].filter((m) => !bondOf.has(m));
+      if (!cand.length) return null;
+      return takeName(cand[Math.floor(Math.random() * cand.length)]);
+    };
+
+    /* 來賓桌:seats = [小天使(靠螢幕側), 來賓(中間), 委員(離螢幕較遠側)] */
+    const lockedTables = [];
+    weekly.guests
+      .filter((g) => g.name && g.name.trim())
+      .forEach((g) => {
+        const gName = g.name.trim();
+        /* 委員側 */
+        let cSeat = null;
+        const cPick = (g.committee || "").trim();
+        if (cPick) {
+          if (!committeeAll.includes(cPick))
+            warnings.push(`「${cPick}」不在委員名單(來賓 ${gName}),已自動改派`);
+          else if (!avail.has(cPick))
+            warnings.push(`委員「${cPick}」本週缺席/代理或已被指派,已自動改派(來賓 ${gName})`);
+          else if (bondOf.has(cPick))
+            warnings.push(`委員「${cPick}」為新人-導師綁定成員須與搭檔同桌,已自動改派(來賓 ${gName})`);
+          else cSeat = { name: takeName(cPick), kind: "committee" };
+        }
+        if (!cSeat) {
+          const cs = committeeAttending();
+          if (cs.length) cSeat = { name: takeName(cs[0]), kind: "committee" };
+          else {
+            const sub = autoAngel();
+            if (sub) {
+              cSeat = { name: sub, kind: "angel" };
+              warnings.push(`委員人數不足,來賓 ${gName} 的委員側由小天使「${sub}」補位`);
+            } else {
+              cSeat = { name: "(空位)", kind: "committee" };
+              warnings.push(`來賓 ${gName} 的委員側無人可派`);
+            }
+          }
+        }
+        /* 小天使側 */
+        let aSeat = null;
+        const aPick = (g.angel || "").trim();
+        if (aPick) {
+          if (!memberSet.has(aPick))
+            warnings.push(`「${aPick}」不在會員名單(來賓 ${gName} 的小天使),已自動改派`);
+          else if (!avail.has(aPick))
+            warnings.push(`「${aPick}」本週缺席/代理或已被指派,已自動改派(來賓 ${gName})`);
+          else if (bondOf.has(aPick))
+            warnings.push(`「${aPick}」為新人-導師綁定成員須與搭檔同桌,已自動改派(來賓 ${gName})`);
+          else aSeat = { name: takeName(aPick), kind: "angel" };
+        }
+        if (!aSeat) {
+          const sub = autoAngel();
+          if (sub) aSeat = { name: sub, kind: "angel" };
+          else {
+            aSeat = { name: "(空位)", kind: "angel" };
+            warnings.push(`來賓 ${gName} 的小天使側無人可派`);
+          }
+        }
+        lockedTables.push({
+          seats: [aSeat, { name: gName, kind: "guest" }, cSeat],
+          type: "guest",
+        });
+      });
+
+    let pool = shuffle([...avail]);
+    const takeUnbonded = () => {
+      const i = pool.findIndex((p) => !bondOf.has(p));
+      return i >= 0 ? pool.splice(i, 1)[0] : null;
+    };
+
+    /* 大使桌:大使+助理大使固定同桌不拆開,第三個位子開放給會員 */
+    const ambTable = {
+      seats: [
+        { name: roster.ambassadors[0] || "大使", kind: "amb" },
+        { name: roster.ambassadors[1] || "助理大使", kind: "amb" },
+      ],
+      type: "amb",
+    };
+    const ambExtra = takeUnbonded();
+    if (ambExtra) ambTable.seats.push({ name: ambExtra, kind: "member" });
+
+    /* 代理人桌(綠色=由代理出席的會員名字,固定右側外圍) */
+    const proxyTables = [];
+    let pr = [...proxied];
+    while (pr.length) {
+      if (pr.length === 4) {
+        proxyTables.push({ seats: pr.splice(0, 2).map((n) => ({ name: n, kind: "proxy" })), type: "proxy" });
+        proxyTables.push({ seats: pr.splice(0, 2).map((n) => ({ name: n, kind: "proxy" })), type: "proxy" });
+      } else if (pr.length === 1) {
+        const one = pr.shift();
+        const fill = takeUnbonded();
+        if (fill) {
+          proxyTables.push({
+            seats: [{ name: one, kind: "proxy" }, { name: fill, kind: "member" }],
+            type: "proxy",
+          });
+        } else {
+          proxyTables.push({ seats: [{ name: one, kind: "proxy" }], type: "proxy" });
+          warnings.push("代理人一人成桌且無會員可遞補,建議手動調整");
+        }
+      } else {
+        proxyTables.push({
+          seats: pr.splice(0, Math.min(3, pr.length)).map((n) => ({ name: n, kind: "proxy" })),
+          type: "proxy",
+        });
+      }
+    }
+
+    /* 其餘會員分桌(新人-導師為 2 人單位) */
+    const used = new Set();
+    const units = [];
+    pool.forEach((m) => {
+      if (used.has(m)) return;
+      const partner = bondOf.get(m);
+      if (partner && pool.includes(partner) && !used.has(partner)) {
+        units.push([m, partner]);
+        used.add(m);
+        used.add(partner);
+      } else {
+        units.push([m]);
+        used.add(m);
+      }
+    });
+    const grouped = groupUnits(units, lastPairs, bondOf);
+    grouped.repeated.slice(0, 8).forEach(([a, b]) =>
+      warnings.push(`「${a}」與「${b}」上週已同桌,本週無法完全避開`)
+    );
+    const memberTables = grouped.tables
+      .filter((t) => t.length > 0)
+      .map((t) => ({ seats: t.map((n) => ({ name: n, kind: "member" })), type: "member" }));
+    if (memberTables.some((t) => t.seats.length === 1))
+      warnings.push("仍有 1 人落單(總人數過少),請手動調整");
+
+    /* 分配:底排排數由系統依總桌數自動決定(≤14桌一排、>14桌兩排,再多則兩側自動延伸)
+       來賓桌依「視野順序」優先安排:
+       ① 底排內圈(正對舞台,視野最佳)② 內圈左右直排(由後往舞台方向)
+       ③ 底排第二排 ④ 外圈直排(內圈滿了才排外圈) */
+    const regular = [...lockedTables, ...memberTables];
+    const totalAll = regular.length + proxyTables.length;
+    const bottomCap = totalAll > 14 ? 4 : 2;
+    const bottomCount = Math.min(bottomCap, regular.length);
+    const P = proxyTables.length;
+    const totalCol = regular.length - bottomCount + P;
+    const per = [0, 0, 0, 0];
+    for (let i = 0; i < 4; i++) per[i] = Math.floor(totalCol / 4);
+    for (let i = 0; i < totalCol % 4; i++) per[i]++;
+    if (per[3] < P) {
+      let need = P - per[3];
+      per[3] = P;
+      let i = 0;
+      while (need > 0 && i < 100) {
+        const j = i % 3;
+        if (per[j] > 0) {
+          per[j]--;
+          need--;
+        }
+        i++;
+      }
+    }
+
+    const slots = {
+      LO: Array(per[0]).fill(null),
+      LI: Array(per[1]).fill(null),
+      RI: Array(per[2]).fill(null),
+      RO: Array(per[3]).fill(null),
+      bottom: Array(bottomCount).fill(null),
+    };
+    for (let i = 0; i < P; i++) slots.RO[per[3] - P + i] = proxyTables[i];
+
+    const viewOrder = [];
+    for (let i = 0; i < Math.min(2, bottomCount); i++) viewOrder.push(["bottom", i]);
+    for (let i = Math.max(per[1], per[2]) - 1; i >= 0; i--) {
+      if (i < per[1]) viewOrder.push(["LI", i]);
+      if (i < per[2]) viewOrder.push(["RI", i]);
+    }
+    for (let i = 2; i < bottomCount; i++) viewOrder.push(["bottom", i]);
+    const roFree = per[3] - P;
+    for (let i = Math.max(per[0], roFree) - 1; i >= 0; i--) {
+      if (i < per[0]) viewOrder.push(["LO", i]);
+      if (i < roFree) viewOrder.push(["RO", i]);
+    }
+
+    let vi = 0;
+    lockedTables.forEach((gt) => {
+      while (vi < viewOrder.length) {
+        const [z, idx] = viewOrder[vi++];
+        if (!slots[z][idx]) {
+          slots[z][idx] = gt;
+          return;
+        }
+      }
+      warnings.push(`來賓「${gt.seats[1].name}」的桌子未能排入,請檢查桌數`);
+    });
+
+    const rest = [...memberTables];
+    ["LO", "LI", "RI", "RO", "bottom"].forEach((z) => {
+      slots[z] = slots[z].map((t) => t || rest.shift()).filter(Boolean);
+    });
+
+    /* 委員方位調整:
+       直排桌 seats 由上而下,上=靠舞台/螢幕 → 委員(離螢幕遠)在下方(index 2),建桌時已如此。
+       底排橫桌 seats 由左而右,離螢幕遠=離中央走道較遠側 → 左半邊的桌委員在左(反轉),右半邊維持在右。 */
+    slots.bottom.forEach((t, i) => {
+      if (t.type === "guest" && i % 2 === 0) t.seats.reverse();
+    });
+
+    const fixedCount =
+      roster.chairRow.filter((c) => c.name.trim()).length +
+      roster.sound.filter(Boolean).length +
+      roster.ambassadors.filter((a) => a.trim()).length;
+
+    setResult({
+      zones: { LO: slots.LO, LI: slots.LI, RI: slots.RI, RO: slots.RO, bottom: slots.bottom, amb: [ambTable] },
+      warnings,
+      stats: {
+        totalMembers: members.length + fixedCount,
+        attending: members.length - weekly.absent.length + fixedCount,
+        proxies: proxied.size,
+        guests: lockedTables.length,
+        absentNoProxy: weekly.absent.length,
+        bottomRows: bottomCap / 2,
+      },
+    });
+    persist("gw-weekly", weekly);
+    setSel(null);
+    setConfirmArm(false);
+    setMsg("");
+    setTab("map");
+  };
+
+  /* ---------- 座位交換(點選兩個名字,或拖曳;大使席固定不可換) ---------- */
+  const swapSeats = (a, b) => {
+    setResult((r) => {
+      if (!r) return r;
+      const zones = JSON.parse(JSON.stringify(r.zones));
+      const sa = zones[a.z][a.t].seats[a.s];
+      zones[a.z][a.t].seats[a.s] = zones[b.z][b.t].seats[b.s];
+      zones[b.z][b.t].seats[b.s] = sa;
+      return { ...r, zones };
+    });
+  };
+  const handleSeatClick = (ref) => {
+    if (!sel) {
+      setSel(ref);
+      return;
+    }
+    if (keyOf(sel.z, sel.t, sel.s) === keyOf(ref.z, ref.t, ref.s)) {
+      setSel(null);
+      return;
+    }
+    swapSeats(sel, ref);
+    setSel(null);
+  };
+  const handleDrop = (srcKey, ref) => {
+    if (!srcKey) return;
+    const src = parseKey(srcKey);
+    if (keyOf(src.z, src.t, src.s) !== keyOf(ref.z, ref.t, ref.s)) swapSeats(src, ref);
+    setSel(null);
+  };
+
+  const Seat = ({ seat, z, t, s }) => {
+    if (seat.kind === "amb") {
+      return <div style={{ ...seatStyle("amb"), cursor: "default" }}>{seat.name}</div>;
+    }
+    const k = keyOf(z, t, s);
+    const isSel = sel && keyOf(sel.z, sel.t, sel.s) === k;
+    const roleTip =
+      seat.kind === "committee" ? "委員(離螢幕較遠側)" : seat.kind === "angel" ? "小天使" : "";
+    return (
+      <div
+        draggable
+        onDragStart={(e) => e.dataTransfer.setData("text/plain", k)}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          handleDrop(e.dataTransfer.getData("text/plain"), { z, t, s });
+        }}
+        onClick={() => handleSeatClick({ z, t, s })}
+        style={{
+          ...seatStyle(seat.kind),
+          cursor: "grab",
+          outline: isSel ? `3px solid ${C.red}` : "none",
+          outlineOffset: 1,
+          transform: isSel ? "scale(1.06)" : "none",
+          transition: "transform .12s",
+        }}
+        title={roleTip || "點選或拖曳可與另一位交換位置"}
+      >
+        {seat.name}
+      </div>
+    );
+  };
+
+  const Column = ({ z, tables }) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      {tables.map((tb, ti) => (
+        <div key={ti} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {tb.seats.map((st, si) => (
+            <Seat key={si} seat={st} z={z} t={ti} s={si} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+
+  /* ---------- 確認存檔(以畫面上目前位置為準,含手動交換) ---------- */
+  const confirmWeek = () => {
+    if (!result) return;
+    if (!confirmArm) {
+      setConfirmArm(true);
+      return;
+    }
+    const z = result.zones;
+    const all = [...z.LO, ...z.LI, ...z.RI, ...z.RO, ...z.bottom, ...(z.amb || [])];
+    const memberKinds = new Set(["member", "committee", "angel"]);
+    const groups = all
+      .map((t) =>
+        t.seats
+          .filter((s) => memberKinds.has(s.kind) && s.name !== "(空位)")
+          .map((s) => s.name)
+      )
+      .filter((g) => g.length >= 2);
+    const h = { label: weekly.label, groups };
+    setHistory(h);
+    persist("gw-history", h);
+    const fresh = emptyWeekly();
+    setWeekly(fresh);
+    persist("gw-weekly", fresh);
+    setConfirmArm(false);
+    setMsg(`已存檔 ${h.label} 分桌紀錄(含手動調整),下週排位將自動避開本週同桌組合。`);
+  };
+
+  const saveRoster = () => {
+    const parseLines = (txt) => {
+      const seen = new Set();
+      txt.split("\n").map((s) => s.trim()).filter(Boolean).forEach((m) => seen.add(m));
+      return [...seen];
+    };
+    const members = parseLines(memberText);
+    const committee = parseLines(committeeText);
+    const memberSet = new Set(members);
+    const notMember = committee.filter((c) => !memberSet.has(c));
+    const r = { ...roster, members, committee };
+    setRoster(r);
+    setMemberText(members.join("\n"));
+    setCommitteeText(committee.join("\n"));
+    persist("gw-roster", r);
+    setMsg(
+      `名單已儲存:會員 ${members.length} 位、委員 ${committee.length} 位。` +
+        (notMember.length
+          ? `注意:委員「${notMember.join("、")}」不在會員名單中(字不一致或為固定席),排位時將無法自動指派,請核對用字。`
+          : "")
+    );
+  };
+
+  const upWeekly = (w) => setWeekly(w);
+  const memberOptions = roster.members.map((s) => s.trim()).filter(Boolean);
+  const takenAbsent = new Set([...weekly.absent, ...weekly.proxies]);
+  const availableOptions = memberOptions.filter((m) => !takenAbsent.has(m));
+  const committeeOptions = (roster.committee || []).filter((c) => !takenAbsent.has(c));
+
+  const tabBtn = (id, label) => (
+    <button
+      onClick={() => setTab(id)}
+      style={{
+        ...btn(false),
+        background: tab === id ? C.red : "transparent",
+        border: "none",
+        color: tab === id ? "#fff" : C.ink,
+        borderRadius: 8,
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  const legend = (
+    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 13, alignItems: "center" }}>
+      {[
+        ["會員", C.seat, C.seatBorder],
+        ["來賓(必坐中間)", C.guest, C.guestBorder],
+        ["委員/小天使(來賓兩側)", C.yellow, C.yellowBorder],
+        ["代理出席(右側外圍)", C.proxy, C.proxyBorder],
+        ["大使席(固定)", C.blue, C.blueBorder],
+      ].map(([t, bg, bd]) => (
+        <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <span style={{ width: 14, height: 14, background: bg, border: `1.5px solid ${bd}`, borderRadius: 3, display: "inline-block" }} />
+          {t}
+        </span>
+      ))}
+    </div>
+  );
+
+  const bottomRowsOf = (tables) => {
+    const rows = [];
+    for (let i = 0; i < tables.length; i += 2) rows.push(tables.slice(i, i + 2));
+    return rows.length ? rows : [[]];
+  };
+
+  return (
+    <div style={{ fontFamily: FONT, background: C.paper, minHeight: "100vh", color: C.ink }}>
+      <style>{`
+        @media print { .no-print{display:none!important} body{background:#fff} }
+        select, input, textarea { outline-color:${C.red}; }
+        button:focus-visible { outline:2px solid ${C.red}; outline-offset:2px; }
+      `}</style>
+
+      {/* 頁首 */}
+      <div className="no-print" style={{ background: "#fff", borderBottom: `3px solid ${C.red}`, padding: "14px 20px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 2 }}>長城分會・例會排位系統</div>
+          <div style={{ fontSize: 12.5, color: "#7A6E5A", marginTop: 2 }}>
+            {history ? `已存上週(${history.label})分桌紀錄,排位自動避開` : "尚無歷史紀錄,第一次排位為隨機分桌"}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+          {tabBtn("week", "① 本週輸入")}
+          {tabBtn("map", "② 座位圖")}
+          {tabBtn("roster", "名單管理")}
+        </div>
+      </div>
+
+      {msg && (
+        <div className="no-print" style={{ margin: "14px 20px 0", padding: "10px 14px", background: "#E8F3E4", border: `1.5px solid ${C.proxyBorder}`, borderRadius: 8, fontSize: 14.5 }}>
+          {msg}
+        </div>
+      )}
+
+      {/* ===== 本週輸入 ===== */}
+      {tab === "week" && (
+        <div className="no-print" style={{ padding: 20, maxWidth: 820 }}>
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ fontWeight: 800, fontSize: 15 }}>例會日期(民國)</label>
+            <div>
+              <input
+                style={{ ...inputStyle, marginTop: 6, width: 180 }}
+                value={weekly.label}
+                onChange={(e) => upWeekly({ ...weekly, label: e.target.value })}
+              />
+            </div>
+          </div>
+
+          {/* 來賓 */}
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
+              來賓(中間)+ 委員(離螢幕遠側)+ 小天使
+              <span style={{ fontWeight: 400, fontSize: 13, color: "#7A6E5A", marginLeft: 8 }}>
+                不指定則自動指派;委員不足時自動以小天使補位
+              </span>
+            </div>
+            {weekly.guests.map((g, i) => (
+              <div key={i} style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <input
+                  style={{ ...inputStyle, width: 130 }}
+                  placeholder="來賓姓名"
+                  value={g.name}
+                  onChange={(e) => {
+                    const gs = [...weekly.guests];
+                    gs[i] = { ...g, name: e.target.value };
+                    upWeekly({ ...weekly, guests: gs });
+                  }}
+                />
+                <select
+                  style={{ ...inputStyle, width: 168, background: C.yellow }}
+                  value={g.committee || ""}
+                  onChange={(e) => {
+                    const gs = [...weekly.guests];
+                    gs[i] = { ...g, committee: e.target.value };
+                    upWeekly({ ...weekly, guests: gs });
+                  }}
+                >
+                  <option value="">委員(自動指派)</option>
+                  {committeeOptions.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+                <select
+                  style={{ ...inputStyle, width: 168, background: C.yellow }}
+                  value={g.angel || ""}
+                  onChange={(e) => {
+                    const gs = [...weekly.guests];
+                    gs[i] = { ...g, angel: e.target.value };
+                    upWeekly({ ...weekly, guests: gs });
+                  }}
+                >
+                  <option value="">小天使(自動指派)</option>
+                  {availableOptions.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+                <button
+                  style={{ ...btn(false), padding: "6px 12px" }}
+                  onClick={() => upWeekly({ ...weekly, guests: weekly.guests.filter((_, x) => x !== i) })}
+                >
+                  刪除
+                </button>
+              </div>
+            ))}
+            <button
+              style={{ ...btn(false), marginTop: 10 }}
+              onClick={() =>
+                upWeekly({ ...weekly, guests: [...weekly.guests, { name: "", committee: "", angel: "" }] })
+              }
+            >
+              ＋ 新增來賓
+            </button>
+          </div>
+
+          {/* 代理出席 */}
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
+              本週代理人:{weekly.proxies.length} 位
+              <span style={{ fontWeight: 400, fontSize: 13, color: "#7A6E5A", marginLeft: 8 }}>
+                選擇「由代理出席」的會員,座位以綠色顯示、固定右側外圍
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+              <select
+                style={{ ...inputStyle, width: 190 }}
+                value=""
+                onChange={(e) => {
+                  if (e.target.value)
+                    upWeekly({ ...weekly, proxies: [...weekly.proxies, e.target.value] });
+                }}
+              >
+                <option value="">＋ 新增代理出席的會員</option>
+                {memberOptions
+                  .filter((m) => !takenAbsent.has(m))
+                  .map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+              </select>
+              {weekly.proxies.map((m) => (
+                <span
+                  key={m}
+                  style={{ background: C.proxy, border: `1.5px solid ${C.proxyBorder}`, borderRadius: 20, padding: "5px 12px", fontSize: 14, display: "inline-flex", gap: 6, alignItems: "center" }}
+                >
+                  {m}
+                  <button
+                    style={{ border: "none", background: "none", cursor: "pointer", fontWeight: 900, color: C.red, fontSize: 14 }}
+                    onClick={() => upWeekly({ ...weekly, proxies: weekly.proxies.filter((x) => x !== m) })}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* 缺席 */}
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>請假/缺席(無代理)</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+              <select
+                style={{ ...inputStyle, width: 170 }}
+                value=""
+                onChange={(e) => {
+                  if (e.target.value)
+                    upWeekly({ ...weekly, absent: [...weekly.absent, e.target.value] });
+                }}
+              >
+                <option value="">＋ 新增缺席會員</option>
+                {memberOptions
+                  .filter((m) => !takenAbsent.has(m))
+                  .map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+              </select>
+              {weekly.absent.map((m) => (
+                <span
+                  key={m}
+                  style={{ background: "#EFE7D2", border: `1.5px solid ${C.seatBorder}`, borderRadius: 20, padding: "5px 12px", fontSize: 14, display: "inline-flex", gap: 6, alignItems: "center" }}
+                >
+                  {m}
+                  <button
+                    style={{ border: "none", background: "none", cursor: "pointer", fontWeight: 900, color: C.red, fontSize: 14 }}
+                    onClick={() => upWeekly({ ...weekly, absent: weekly.absent.filter((x) => x !== m) })}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* 議程 ①-⑤ */}
+          <div style={{ marginBottom: 26 }}>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
+              中央議程(題目固定,每週填入負責人)
+            </div>
+            {AGENDA.map((title, i) => (
+              <div key={i} style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+                <span style={{ fontWeight: 700, fontSize: 15, width: 130 }}>
+                  {CIRCLED[i]} {title}
+                </span>
+                <input
+                  style={{ ...inputStyle, width: 220 }}
+                  placeholder="例:鍾宇傑 劉宜賢"
+                  value={weekly.agenda[i] || ""}
+                  onChange={(e) => {
+                    const a = [...weekly.agenda];
+                    a[i] = e.target.value;
+                    upWeekly({ ...weekly, agenda: a });
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+
+          <button style={btn(true)} onClick={generate}>
+            產生本週座位表 →
+          </button>
+        </div>
+      )}
+
+      {/* ===== 座位圖 ===== */}
+      {tab === "map" && (
+        <div style={{ padding: 20 }}>
+          {!result && (
+            <div className="no-print" style={{ fontSize: 15 }}>
+              尚未產生座位表。請先到「① 本週輸入」填好資料,再按「產生本週座位表」。
+            </div>
+          )}
+          {result && (
+            <>
+              <div className="no-print" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 8, alignItems: "center" }}>
+                <button style={btn(false)} onClick={generate}>🔀 重新洗牌</button>
+                <button style={btn(true)} onClick={confirmWeek}>
+                  {confirmArm ? "再按一次確認存檔" : "✓ 確認本週並存檔"}
+                </button>
+                <button style={btn(false)} onClick={() => window.print()}>🖨 列印</button>
+              </div>
+              <div className="no-print" style={{ marginBottom: 8 }}>{legend}</div>
+              <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 12 }}>
+                底排排數自動(本週:{result.stats.bottomRows} 排)。來賓桌視野優先:底排內圈 → 內圈直排 → 底排第二排 → 外圈。
+                來賓兩側:黃色=委員/小天使,委員在離螢幕較遠側(直排=下方座位)。
+                新人-導師固定同桌。點選或拖曳名字可交換;大使席固定。存檔以畫面目前位置為準。
+              </div>
+
+              {result.warnings.length > 0 && (
+                <div className="no-print" style={{ background: C.amber, border: "1.5px solid #D9A93F", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14 }}>
+                  {result.warnings.map((w, i) => (
+                    <div key={i}>⚠ {w}</div>
+                  ))}
+                </div>
+              )}
+
+              {/* 口字座位圖 */}
+              <div style={{ background: "#fff", border: `2px solid ${C.ink}`, borderRadius: 6, padding: "18px 16px 24px", overflowX: "auto" }}>
+                <div style={{ minWidth: 900 }}>
+                  {/* 上排:主席排 + 電音 */}
+                  <div style={{ display: "flex", justifyContent: "center", gap: 40, alignItems: "flex-start" }}>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      {roster.chairRow.map((c, i) => (
+                        <div key={i}>
+                          <div style={seatStyle("member")}>{c.name || "—"}</div>
+                          <div style={{ background: C.red, color: "#fff", textAlign: "center", fontSize: 13, fontWeight: 700, padding: "3px 0", borderRadius: 3, marginTop: 3, letterSpacing: 2 }}>
+                            {c.role}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {roster.sound.map((n, i) => (
+                          <div key={i} style={seatStyle("member")}>{n || "—"}</div>
+                        ))}
+                      </div>
+                      <div style={{ background: C.red, color: "#fff", textAlign: "center", fontSize: 13, fontWeight: 700, padding: "3px 0", borderRadius: 3, marginTop: 3, letterSpacing: 8 }}>
+                        電音
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 中段 */}
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 26, gap: 18 }}>
+                    <div style={{ display: "flex", gap: 18 }}>
+                      <Column z="LO" tables={result.zones.LO} />
+                      <Column z="LI" tables={result.zones.LI} />
+                    </div>
+
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 8 }}>
+                      <div style={{ width: 160, height: 92, borderRadius: "50%", background: C.red, color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontWeight: 900, boxShadow: "0 2px 6px rgba(0,0,0,.25)" }}>
+                        <div style={{ fontSize: 21 }}>25秒</div>
+                        <div style={{ fontSize: 14 }}>主題簡報區</div>
+                      </div>
+                      <div style={{ marginTop: 18, textAlign: "center", fontWeight: 800, fontSize: 17 }}>
+                        長城分會 {weekly.label} 例會
+                        <div style={{ fontSize: 15, marginTop: 4 }}>
+                          會員:{result.stats.totalMembers}人 來賓:{result.stats.guests}位
+                        </div>
+                        <div style={{ fontSize: 13, marginTop: 4, color: "#7A6E5A", fontWeight: 500 }}>
+                          出席 {result.stats.attending}・代理 {result.stats.proxies}・缺席 {result.stats.absentNoProxy}
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 16, textAlign: "left", fontSize: 15, fontWeight: 700, lineHeight: 2 }}>
+                        {AGENDA.map((title, i) => (
+                          <div key={i}>
+                            {CIRCLED[i]} {title}:{weekly.agenda[i] ? weekly.agenda[i] : "＿＿＿"}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 18 }}>
+                      <Column z="RI" tables={result.zones.RI} />
+                      <Column z="RO" tables={result.zones.RO} />
+                    </div>
+                  </div>
+
+                  {/* 底排(大使桌固定在左,其餘桌排數自動) */}
+                  <div style={{ display: "flex", justifyContent: "center", gap: 26, marginTop: 26, alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {result.zones.amb[0].seats.map((st, si) => (
+                          <Seat key={si} seat={st} z="amb" t={0} s={si} />
+                        ))}
+                      </div>
+                      <div style={{ textAlign: "center", fontSize: 12, color: C.blueBorder, fontWeight: 700, marginTop: 3 }}>
+                        大使桌(大使+助理大使不分開)
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                      {bottomRowsOf(result.zones.bottom).map((row, ri) => (
+                        <div key={ri} style={{ display: "flex", gap: 26 }}>
+                          {row.map((tb) => {
+                            const ti = result.zones.bottom.indexOf(tb);
+                            return (
+                              <div key={ti} style={{ display: "flex", gap: 4 }}>
+                                {tb.seats.map((st, si) => (
+                                  <Seat key={si} seat={st} z="bottom" t={ti} s={si} />
+                                ))}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ===== 名單管理 ===== */}
+      {tab === "roster" && (
+        <div className="no-print" style={{ padding: 20, maxWidth: 820 }}>
+          <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
+            領導團隊與電音(每半年改選,直接修改姓名即可)
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 8, marginTop: 8 }}>
+            {roster.chairRow.map((c, i) => (
+              <div key={i}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 3 }}>{c.role}</div>
+                <input
+                  style={{ ...inputStyle, width: 120 }}
+                  value={c.name}
+                  onChange={(e) => {
+                    const cr = [...roster.chairRow];
+                    cr[i] = { ...c, name: e.target.value };
+                    updateRoster({ ...roster, chairRow: cr });
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+            {roster.sound.map((n, i) => (
+              <div key={"s" + i}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 3 }}>電音 {i + 1}</div>
+                <input
+                  style={{ ...inputStyle, width: 120 }}
+                  value={n}
+                  onChange={(e) => {
+                    const s = [...roster.sound];
+                    s[i] = e.target.value;
+                    updateRoster({ ...roster, sound: s });
+                  }}
+                />
+              </div>
+            ))}
+            {roster.ambassadors.map((n, i) => (
+              <div key={"a" + i}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.blueBorder, marginBottom: 3 }}>{i === 0 ? "大使" : "助理大使"}</div>
+                <input
+                  style={{ ...inputStyle, width: 120 }}
+                  value={n}
+                  onChange={(e) => {
+                    const a = [...roster.ambassadors];
+                    a[i] = e.target.value;
+                    updateRoster({ ...roster, ambassadors: a });
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 22 }}>
+            大使與助理大使固定同桌、位置不變,系統會自動安排一位會員與他們同桌(每週輪換)。
+          </div>
+
+          {/* 新人-導師 */}
+          <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
+            新人-導師綁定(必須同桌)
+            <span style={{ fontWeight: 400, fontSize: 13, color: "#7A6E5A", marginLeft: 8 }}>
+              綁定約 8 週,期滿刪除該列;任一方當週缺席則自動暫停
+            </span>
+          </div>
+          {(roster.mentorPairs || []).map((p, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <select
+                style={{ ...inputStyle, width: 160 }}
+                value={p.newbie || ""}
+                onChange={(e) => {
+                  const ps = [...roster.mentorPairs];
+                  ps[i] = { ...p, newbie: e.target.value };
+                  updateRoster({ ...roster, mentorPairs: ps });
+                }}
+              >
+                <option value="">新人</option>
+                {memberOptions.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+              <select
+                style={{ ...inputStyle, width: 160 }}
+                value={p.mentor || ""}
+                onChange={(e) => {
+                  const ps = [...roster.mentorPairs];
+                  ps[i] = { ...p, mentor: e.target.value };
+                  updateRoster({ ...roster, mentorPairs: ps });
+                }}
+              >
+                <option value="">導師</option>
+                {memberOptions.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+              <button
+                style={{ ...btn(false), padding: "6px 12px" }}
+                onClick={() =>
+                  updateRoster({ ...roster, mentorPairs: roster.mentorPairs.filter((_, x) => x !== i) })
+                }
+              >
+                刪除
+              </button>
+            </div>
+          ))}
+          <button
+            style={{ ...btn(false), marginTop: 10, marginBottom: 22 }}
+            onClick={() =>
+              updateRoster({ ...roster, mentorPairs: [...(roster.mentorPairs || []), { newbie: "", mentor: "" }] })
+            }
+          >
+            ＋ 新增綁定
+          </button>
+
+          {/* 兩份名單 */}
+          <div style={{ display: "flex", gap: 26, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
+                輪換會員名單(年度續約)
+                <span style={{ fontWeight: 400, fontSize: 13, color: "#7A6E5A", marginLeft: 8 }}>
+                  {memberText.split("\n").map((s) => s.trim()).filter(Boolean).length} 位
+                </span>
+              </div>
+              <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 6, maxWidth: 340 }}>
+                一行一位;新會員加一行、提早離會刪該行。來賓不在此名單,每週於「① 本週輸入」增刪。
+              </div>
+              <textarea
+                style={{ ...inputStyle, width: 320, height: 300, lineHeight: 1.7 }}
+                value={memberText}
+                onChange={(e) => setMemberText(e.target.value)}
+              />
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
+                委員名單
+                <span style={{ fontWeight: 400, fontSize: 13, color: "#7A6E5A", marginLeft: 8 }}>
+                  {committeeText.split("\n").map((s) => s.trim()).filter(Boolean).length} 位
+                </span>
+              </div>
+              <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 6, maxWidth: 300 }}>
+                一行一位,隨領導團隊改選一起更新。用字須與會員名單完全一致,系統才能自動指派。
+              </div>
+              <textarea
+                style={{ ...inputStyle, width: 260, height: 300, lineHeight: 1.7 }}
+                value={committeeText}
+                onChange={(e) => setCommitteeText(e.target.value)}
+              />
+            </div>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <button style={btn(true)} onClick={saveRoster}>儲存名單</button>
+          </div>
+          <div style={{ marginTop: 14, fontSize: 13, color: "#7A6E5A", lineHeight: 1.8 }}>
+            預設名單由 115/07/15 座位表照片辨識而來,辨識可能有錯字,請核對後儲存。
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
