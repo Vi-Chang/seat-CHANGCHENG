@@ -178,8 +178,6 @@ const seatStyle = (kind) => ({
       ? C.proxy
       : kind === "amb"
       ? C.blue
-      : kind === "committee" || kind === "angel"
-      ? C.yellow
       : C.seat,
   border: `1.5px solid ${
     kind === "guest"
@@ -188,8 +186,6 @@ const seatStyle = (kind) => ({
       ? C.proxyBorder
       : kind === "amb"
       ? C.blueBorder
-      : kind === "committee" || kind === "angel"
-      ? C.yellowBorder
       : C.seatBorder
   }`,
   borderRadius: 3,
@@ -353,48 +349,40 @@ function GuestSignSheet({ data }) {
   );
 }
 
-const TentBanner = () => (
+const BadgeHeader = () => (
   <div>
-    <svg viewBox="0 0 400 34" width="100%" height="40" preserveAspectRatio="none" style={{ display: "block" }}>
+    <svg viewBox="0 0 400 34" width="100%" height="34" preserveAspectRatio="none" style={{ display: "block" }}>
       <path d="M0,4 C110,18 290,18 400,0 L400,14 C290,30 110,30 0,18 Z" fill="#A6221A" />
       <path d="M0,18 C110,30 290,30 400,14 L400,22 C290,37 110,37 0,26 Z" fill="#C6C6C6" />
     </svg>
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 14px 0" }}>
-      <span style={{ color: "#A6221A", fontWeight: 900, fontStyle: "italic", fontSize: 30, fontFamily: "Arial, sans-serif", lineHeight: 1 }}>
-        BNI<span style={{ fontSize: 11, verticalAlign: "super" }}>®</span>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 16px 0" }}>
+      <span style={{ color: "#A6221A", fontWeight: 900, fontStyle: "italic", fontSize: 28, fontFamily: "Arial, sans-serif", lineHeight: 1 }}>
+        BNI<span style={{ fontSize: 10, verticalAlign: "super" }}>®</span>
       </span>
-      <span>
-        <div style={{ color: "#A6221A", fontWeight: 700, fontSize: 16, lineHeight: 1.2 }}>長城鈦金名人堂分會</div>
-        <div style={{ color: "#888", fontSize: 9 }}>Changing the Way the World Does Business®</div>
-      </span>
+      <span style={{ color: "#A6221A", fontWeight: 700, fontSize: 17, lineHeight: 1.2 }}>長城鈦金名人堂分會</span>
     </div>
   </div>
 );
 
 function NameBadges({ data }) {
   const guests = data.guests || [];
-  /* 一張 A4 直向排 3 列×2 欄=6 張;來賓超過 6 位往下延伸(列印時自動分頁) */
-  const slots = Math.max(6, Math.ceil(guests.length / 2) * 2);
+  /* 一張 A4 直向排 4 列×2 欄=8 張；來賓超過 8 位往下延伸（列印時自動分頁） */
+  const slots = Math.max(8, Math.ceil(guests.length / 2) * 2);
   const cards = Array.from({ length: slots }, (_, i) => guests[i] || null);
-  const CARD_H = 345; // 固定高度使 3 列恰好填滿 A4 直向
+  const CARD_H = 255; // 固定高度使 4 列恰好填滿 A4 直向
   return (
-    <div style={{ width: A4.shortSide, minHeight: A4.longSide, boxSizing: "border-box", background: "#fff", color: "#000", padding: "26px 20px", fontFamily: KAI, display: "grid", gridTemplateColumns: "1fr 1fr", gridAutoRows: `${CARD_H}px`, gap: "18px 14px" }}>
+    <div style={{ width: A4.shortSide, minHeight: A4.longSide, boxSizing: "border-box", background: "#fff", color: "#000", padding: "26px 20px", fontFamily: KAI, display: "grid", gridTemplateColumns: "1fr 1fr", gridAutoRows: `${CARD_H}px`, gap: "16px 14px" }}>
       {cards.map((g, i) => (
-        <div key={i} style={{ border: "1px dashed #bbb", height: CARD_H, boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-          {/* 正面(摺線上方):名牌內容 */}
-          <div>
-            <TentBanner />
-            <div style={{ fontSize: 42, fontWeight: 700, letterSpacing: 5, padding: "6px 16px 0", whiteSpace: "nowrap", overflow: "hidden" }}>
-              {g ? g.name : " "}
+        <div key={i} style={{ border: "1px solid #ddd", height: CARD_H, boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
+          <BadgeHeader />
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "2px 12px 4px" }}>
+            <div style={{ fontSize: 58, fontWeight: 700, letterSpacing: 6, whiteSpace: "nowrap", overflow: "hidden", lineHeight: 1.1 }}>
+              {g && g.name ? g.name : ""}
             </div>
-            <div style={{ fontSize: 20, textAlign: "center", minHeight: 28 }}>{g ? g.industry || "" : " "}</div>
-            <div style={{ fontSize: 19, textAlign: "right", padding: "6px 22px 0", minHeight: 26 }}>
-              {g && g.inviter ? `${g.inviter} 來賓` : " "}
-            </div>
+            <div style={{ fontSize: 22, marginTop: 6, textAlign: "center" }}>{g && g.industry ? g.industry : ""}</div>
           </div>
-          {/* 背面(摺線下方,倒印,摺起後立於桌面) */}
-          <div style={{ transform: "rotate(180deg)" }}>
-            <TentBanner />
+          <div style={{ fontSize: 18, textAlign: "right", padding: "0 18px 10px", minHeight: 24 }}>
+            {g && g.inviter ? `${g.inviter} 來賓` : ""}
           </div>
         </div>
       ))}
@@ -1047,7 +1035,6 @@ function App() {
       {[
         ["會員", C.seat, C.seatBorder],
         ["來賓(必坐中間)", C.guest, C.guestBorder],
-        ["委員/小天使(來賓兩側)", C.yellow, C.yellowBorder],
         ["代理出席(右側外圍)", C.proxy, C.proxyBorder],
         ["大使席(固定)", C.blue, C.blueBorder],
       ].map(([t, bg, bd]) => (
@@ -1075,12 +1062,12 @@ function App() {
   const safeLabelOf = (label) => (label || "未命名").replace(/[\\/:*?"<>|]/g, "-");
   const downloadPng = (elId, filename) => {
     const el = document.getElementById(elId);
-    if (!el) return;
+    if (!el) return Promise.resolve();
     if (!window.html2canvas) {
       window.print(); // 圖檔函式庫未載入(離線)時退回列印
-      return;
+      return Promise.resolve();
     }
-    window
+    return window
       .html2canvas(el, {
         backgroundColor: "#ffffff",
         scale: 2,
@@ -1088,16 +1075,26 @@ function App() {
         height: el.scrollHeight,
         windowWidth: el.scrollWidth + 60,
       })
-      .then((canvas) => {
-        const a = document.createElement("a");
-        a.download = filename + ".png";
-        a.href = canvas.toDataURL("image/png");
-        a.click();
-      })
-      .catch(() => window.print());
+      .then(
+        (canvas) =>
+          new Promise((resolve) => {
+            const a = document.createElement("a");
+            a.download = filename + ".png";
+            a.href = canvas.toDataURL("image/png");
+            a.click();
+            setTimeout(resolve, 500); // 間隔一下,避免瀏覽器擋多檔連續下載
+          })
+      )
+      .catch(() => {
+        window.print();
+      });
   };
-  const downloadMap = () =>
-    downloadPng("seatmap", `長城鈦金名人堂分會座位表_${safeLabelOf(mapView && mapView.label)}`);
+  /* 座位圖 + 例會資料 同步下載:一張座位圖(含例會資訊)+ 一張例會細節表單 */
+  const downloadMeetingSet = async () => {
+    const lb = safeLabelOf(mapView && mapView.label);
+    await downloadPng("seatmap", `長城鈦金名人堂分會座位圖_${lb}`);
+    await downloadPng("meeting-detail", `長城鈦金名人堂分會例會資料_${lb}`);
+  };
 
   /* 三張表資料來源:瀏覽儲存紀錄時用快照,否則用本週輸入 */
   const fixedCount =
@@ -1387,13 +1384,13 @@ function App() {
                     </button>
                   </>
                 )}
-                <button style={btn(false)} onClick={downloadMap}>📥 下載座位圖</button>
+                <button style={btn(true)} onClick={downloadMeetingSet}>📥 下載座位圖＋例會資料</button>
               </div>
               <div className="no-print" style={{ marginBottom: 8 }}>{legend}</div>
               {!viewing && (
                 <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 12 }}>
                   底排排數自動(本週:{result.stats.bottomRows} 排)。來賓桌視野優先:底排內圈 → 內圈直排 → 底排第二排 → 外圈。
-                  來賓兩側:黃色=委員/小天使,委員在離螢幕較遠側(直排=下方座位)。
+                  來賓兩側為委員與小天使,委員在離螢幕較遠側(直排=下方座位)。
                   新人-導師固定同桌。點選或拖曳名字可交換;大使席固定。存檔以畫面目前位置為準。
                 </div>
               )}
@@ -1500,12 +1497,21 @@ function App() {
                   </div>
                 </div>
               </div>
+              {/* 例會資料:與座位圖同頁顯示,並隨「下載座位圖＋例會資料」一起輸出 */}
+              <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", margin: "18px 0 8px" }}>
+                例會資料(與座位圖一起下載;A4 橫向,出席率等空白欄位現場手寫):
+              </div>
+              <div style={{ overflowX: "auto", background: "#EDE8DB", border: `1.5px solid ${C.seatBorder}`, borderRadius: 6, padding: 12 }}>
+                <div id="meeting-detail" style={{ width: "fit-content", boxShadow: "0 1px 6px rgba(0,0,0,.2)" }}>
+                  <DetailSheet data={sheetData} />
+                </div>
+              </div>
             </>
           )}
         </div>
       )}
 
-      {/* ===== 例會表單(三張表) ===== */}
+      {/* ===== 例會表單(名牌+簽到表) ===== */}
       {tab === "sheets" && (
         <div className="no-print" style={{ padding: 20 }}>
           {viewing && (
@@ -1519,9 +1525,9 @@ function App() {
             </div>
           )}
           <div style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 14, lineHeight: 1.8 }}>
-            三張表自動帶入「① 本週輸入」的資料(來賓的行業別、手機、E-mail、邀請人請在輸入時填寫)。
-            出席率、實到人數等空白欄位留待例會現場手寫。各表為 A4 尺寸,可下載成圖檔列印——
-            細節表單與簽到表為橫向(A4 橫印),來賓名牌為直向(A4 直印)。
+            表單自動帶入「① 本週輸入」的資料(來賓的行業別、手機、E-mail、邀請人請在輸入時填寫)。
+            例會細節表單已改為在「② 座位圖」與座位圖一起下載。以下兩表為 A4 尺寸,可下載成圖檔列印——
+            來賓簽到表為橫向(A4 橫印),來賓名牌為直向(A4 直印,一頁 8 張)。
           </div>
           {sheetData.guests.length === 0 && (
             <div style={{ background: C.amber, border: "1.5px solid #D9A93F", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14 }}>
@@ -1530,9 +1536,8 @@ function App() {
           )}
 
           {[
-            { key: "detail", title: "1. 例會細節表單", id: "sheet-detail", file: "例會細節表單", body: <DetailSheet data={sheetData} /> },
-            { key: "sign", title: "2. 來賓簽到表", id: "sheet-sign", file: "來賓簽到表", body: <GuestSignSheet data={sheetData} /> },
-            { key: "tent", title: "3. 來賓名牌", id: "sheet-tent", file: "來賓名牌", body: <NameBadges data={sheetData} /> },
+            { key: "sign", title: "1. 來賓簽到表", id: "sheet-sign", file: "來賓簽到表", body: <GuestSignSheet data={sheetData} /> },
+            { key: "tent", title: "2. 來賓名牌", id: "sheet-tent", file: "來賓名牌", body: <NameBadges data={sheetData} /> },
           ].map((s) => (
             <div key={s.key} style={{ marginBottom: 30 }}>
               <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
