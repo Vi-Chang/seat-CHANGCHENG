@@ -221,6 +221,182 @@ const inputStyle = {
   color: C.ink,
 };
 
+/* ---------------- 例會三張表(細節表單/來賓簽到/來賓桌牌) ---------------- */
+const KAI = '"DFKai-SB","BiauKai","Kaiti TC","KaiTi","Noto Serif TC",serif';
+const fmtMinguo = (label) => {
+  const m = (label || "").match(/(\d+)\D+(\d+)\D+(\d+)/);
+  return m ? `${m[1]} 年 ${m[2]} 月 ${m[3]}` : label || "";
+};
+const Blank = ({ w, v }) => (
+  <span style={{ display: "inline-block", minWidth: w, borderBottom: "1.5px solid #000", textAlign: "center", padding: "0 6px", fontWeight: 700 }}>
+    {v || " "}
+  </span>
+);
+
+/* 例會前置檢查清單(固定內容,印於細節表單左半) */
+const CHECKLIST = [
+  { t: "*禮拜二早上製作座位圖發至精進分享群組", ind: 0 },
+  { t: "*禮拜二早上製作會員/來賓/參訪分會簽到表", ind: 1 },
+  { t: "*禮拜二早上統計人數通知五長", ind: 1 },
+  { t: "*與『司庫秘書』確認 slogan 表的更新與印製", ind: 1 },
+  { t: "*切記要準備足夠的零錢", ind: 1 },
+  { t: "1. 會員.來賓及分會參訪人員簽到表→放置於接待桌", ind: 0 },
+  { t: "2. 家人和來賓名片盒→會前放置於交流桌→會議開始放置於五長桌", ind: 0 },
+  { t: "抽獎箱→會前放置於交流桌", ind: 1 },
+  { t: "3. 引薦單和感謝單→放置於交流桌", ind: 0 },
+  { t: "4. 會員桌牌及來賓桌牌和 slogan 表→按照座位圖擺放", ind: 0 },
+  { t: "5. 準備好問卷單+申請表", ind: 0 },
+  { t: "*分會參訪人員提供姓名貼不戴名牌(姓名貼上貼小圓點以利識別)", ind: 0 },
+  { t: "*務必請來賓提供手機以及 LINE ID,以利行政組長後續追蹤", ind: 0 },
+  { t: "*接待人員帶來賓至座位後轉回交流區並介紹給負責的親善大使認識", ind: 0 },
+  { t: "*負責茶水的接待人員務必不時確認茶水桌上有適當的杯數", ind: 0 },
+  { t: "*告知當天計時.舉牌.傳麥克風和收單人員為誰", ind: 0 },
+  { t: "*切記要確認麥克風的電力", ind: 0 },
+  { t: "*遲到之來賓-若還有來賓或是分會參訪人員未到,請知會外場協助", ind: 0 },
+  { t: "引導至會議門口,再由坐於門口之接待組人員引導至座位", ind: 2 },
+  { t: "*計算並填寫會議出席細節表單,將一組來賓名片放到五長桌", ind: 0, u: true },
+  { t: "*注意麥克風傳遞.舉牌.時間提醒的狀況", ind: 0 },
+  { t: "*提醒收引薦單和 slogan 表,並立刻計算出一分鐘之星告知財秘", ind: 0 },
+  { t: "*會議結束時 8:45 才可以上早餐,給締結人員時間與來賓交談", ind: 0, gray: true },
+  { t: "*會員和來賓簽到表拍照上傳至領導團隊相簿", ind: 0, gray: true, u: true },
+];
+
+function DetailSheet({ data }) {
+  const d = fmtMinguo(data.label);
+  const line = { margin: "7px 0" };
+  return (
+    <div style={{ width: 1123, boxSizing: "border-box", background: "#fff", color: "#000", padding: "44px 52px", fontFamily: KAI, display: "flex", gap: 46 }}>
+      <div style={{ width: 470, fontSize: 14, lineHeight: 1.95 }}>
+        {CHECKLIST.map((l, i) => (
+          <div key={i} style={{ paddingLeft: l.ind * 18, color: l.gray ? "#999" : "#000", textDecoration: l.u ? "underline" : "none" }}>
+            {l.t}
+          </div>
+        ))}
+      </div>
+      <div style={{ flex: 1, fontSize: 25 }}>
+        <div style={{ fontSize: 31, fontWeight: 700, textDecoration: "underline", marginBottom: 24 }}>
+          長城鈦金 {d} 例會
+        </div>
+        <div style={line}>會員數:{data.memberTotal} 人</div>
+        <div style={{ ...line, marginTop: 20 }}>
+          應到 <Blank w={64} v={String(data.memberTotal)} /> 位  實到 <Blank w={64} /> 位
+        </div>
+        <div style={line}>會員出席率:</div>
+        <div style={line}>遲 到:</div>
+        <div style={line}>缺 席:{(data.absent || []).join(" ")}</div>
+        <div style={line}>代理人:{(data.proxies || []).join(" ")}</div>
+        <div style={line}>
+          來賓數:應到 <Blank w={52} v={String((data.guests || []).length)} /> 位
+        </div>
+        <div style={line}>
+          來賓數:實到 <Blank w={52} /> 位
+        </div>
+        <div style={line}>來賓出席率:</div>
+        <div style={line}>
+          分會參訪:<Blank w={90} /> 位
+        </div>
+        <div style={line}>
+          分會來賓:<Blank w={90} /> 位
+        </div>
+        <div style={line}>
+          總人數:<Blank w={84} /> 位 引薦單:<Blank w={84} /> 張
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GuestSignSheet({ data }) {
+  const d = fmtMinguo(data.label);
+  const guests = data.guests || [];
+  const rows = Math.max(12, guests.length);
+  const td = { border: "1px solid #000", padding: "9px 6px", textAlign: "center", fontSize: 16, height: 26 };
+  const widths = [52, 110, 110, 150, 140, 230, 90, 54];
+  return (
+    <div style={{ width: 1123, boxSizing: "border-box", background: "#fff", color: "#000", padding: "40px 46px 28px", fontFamily: KAI }}>
+      <div style={{ textAlign: "center", fontSize: 26, fontWeight: 700, letterSpacing: 2, marginBottom: 22 }}>
+        BNI 長城鈦金分會 來賓簽到 {d} 日
+      </div>
+      <table style={{ borderCollapse: "collapse", width: "100%" }}>
+        <thead>
+          <tr>
+            {["序號", "嘉賓姓名", "嘉賓簽到", "行業別", "手機號碼", "E-mail", "邀請人", "繳費打勾"].map((h, i) => (
+              <th key={h} style={{ ...td, fontWeight: 700, fontSize: i === 7 ? 13 : 17, width: widths[i] }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: rows }, (_, i) => {
+            const g = guests[i] || {};
+            return (
+              <tr key={i}>
+                <td style={td}>{i + 1}</td>
+                <td style={td}>{g.name || ""}</td>
+                <td style={td}></td>
+                <td style={td}>{g.industry || ""}</td>
+                <td style={td}>{g.phone || ""}</td>
+                <td style={{ ...td, fontSize: 15 }}>{g.email || ""}</td>
+                <td style={td}>{g.inviter || ""}</td>
+                <td style={td}></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div style={{ textAlign: "right", color: "#A6221A", fontSize: 15, marginTop: 8 }}>
+        五分鐘主講與宣示會員來賓不收費請打○
+      </div>
+    </div>
+  );
+}
+
+const TentBanner = () => (
+  <div>
+    <svg viewBox="0 0 400 34" width="100%" height="40" preserveAspectRatio="none" style={{ display: "block" }}>
+      <path d="M0,4 C110,18 290,18 400,0 L400,14 C290,30 110,30 0,18 Z" fill="#A6221A" />
+      <path d="M0,18 C110,30 290,30 400,14 L400,22 C290,37 110,37 0,26 Z" fill="#C6C6C6" />
+    </svg>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 14px 0" }}>
+      <span style={{ color: "#A6221A", fontWeight: 900, fontStyle: "italic", fontSize: 30, fontFamily: "Arial, sans-serif", lineHeight: 1 }}>
+        BNI<span style={{ fontSize: 11, verticalAlign: "super" }}>®</span>
+      </span>
+      <span>
+        <div style={{ color: "#A6221A", fontWeight: 700, fontSize: 16, lineHeight: 1.2 }}>長城鈦金名人堂分會</div>
+        <div style={{ color: "#888", fontSize: 9 }}>Changing the Way the World Does Business®</div>
+      </span>
+    </div>
+  </div>
+);
+
+function TentCards({ data }) {
+  const guests = data.guests || [];
+  const slots = Math.max(6, Math.ceil(guests.length / 2) * 2);
+  const cards = Array.from({ length: slots }, (_, i) => guests[i] || null);
+  return (
+    <div style={{ width: 794, boxSizing: "border-box", background: "#fff", color: "#000", padding: "26px 20px", fontFamily: KAI, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px 14px" }}>
+      {cards.map((g, i) => (
+        <div key={i} style={{ border: "1px dashed #bbb" }}>
+          {/* 正面(摺線上方):名牌內容 */}
+          <div style={{ paddingBottom: 8 }}>
+            <TentBanner />
+            <div style={{ fontSize: 42, fontWeight: 700, letterSpacing: 5, padding: "2px 16px 0", whiteSpace: "nowrap", overflow: "hidden" }}>
+              {g ? g.name : " "}
+            </div>
+            <div style={{ fontSize: 20, textAlign: "center", minHeight: 28 }}>{g ? g.industry || "" : " "}</div>
+            <div style={{ fontSize: 19, textAlign: "right", padding: "0 22px 4px", minHeight: 26 }}>
+              {g && g.inviter ? `${g.inviter} 來賓` : " "}
+            </div>
+          </div>
+          {/* 背面(摺線下方,倒印,摺起後立於桌面) */}
+          <div style={{ transform: "rotate(180deg)", paddingBottom: 6 }}>
+            <TentBanner />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const keyOf = (z, t, s) => `${z}.${t}.${s}`;
 const parseKey = (k) => {
   const [z, t, s] = k.split(".");
@@ -279,6 +455,10 @@ function App() {
             name: g.name || "",
             committee: g.committee || "",
             angel: g.angel || "",
+            industry: g.industry || "",
+            phone: g.phone || "",
+            email: g.email || "",
+            inviter: g.inviter || "",
           }));
           setWeekly(parsed);
         }
@@ -671,6 +851,12 @@ function App() {
       stats: result.stats,
       chairRow: roster.chairRow.map((c) => ({ ...c })),
       sound: [...roster.sound],
+      week: {
+        guests: weekly.guests.filter((g) => g.name && g.name.trim()).map((g) => ({ ...g })),
+        proxies: [...weekly.proxies],
+        absent: [...weekly.absent],
+        memberTotal: result.stats.totalMembers,
+      },
     };
     const list = [rec, ...saved].slice(0, 40);
     setSaved(list);
@@ -759,8 +945,9 @@ function App() {
     ? { label: weekly.label, zones: result.zones, agenda: weekly.agenda, stats: result.stats, chairRow: roster.chairRow, sound: roster.sound }
     : null;
 
-  const downloadMap = () => {
-    const el = document.getElementById("seatmap");
+  const safeLabelOf = (label) => (label || "未命名").replace(/[\\/:*?"<>|]/g, "-");
+  const downloadPng = (elId, filename) => {
+    const el = document.getElementById(elId);
     if (!el) return;
     if (!window.html2canvas) {
       window.print(); // 圖檔函式庫未載入(離線)時退回列印
@@ -776,13 +963,30 @@ function App() {
       })
       .then((canvas) => {
         const a = document.createElement("a");
-        const safe = ((mapView && mapView.label) || "座位表").replace(/[\\/:*?"<>|]/g, "-");
-        a.download = `長城分會座位表_${safe}.png`;
+        a.download = filename + ".png";
         a.href = canvas.toDataURL("image/png");
         a.click();
       })
       .catch(() => window.print());
   };
+  const downloadMap = () =>
+    downloadPng("seatmap", `長城分會座位表_${safeLabelOf(mapView && mapView.label)}`);
+
+  /* 三張表資料來源:瀏覽儲存紀錄時用快照,否則用本週輸入 */
+  const fixedCount =
+    roster.chairRow.filter((c) => c.name.trim()).length +
+    roster.sound.filter(Boolean).length +
+    roster.ambassadors.filter((a) => a.trim()).length;
+  const sheetData =
+    viewing && viewing.week
+      ? { ...viewing.week, label: viewing.label }
+      : {
+          label: weekly.label,
+          guests: weekly.guests.filter((g) => g.name && g.name.trim()),
+          proxies: weekly.proxies,
+          absent: weekly.absent,
+          memberTotal: roster.members.map((s) => s.trim()).filter(Boolean).length + fixedCount,
+        };
 
   return (
     <div style={{ fontFamily: FONT, background: C.paper, minHeight: "100vh", color: C.ink }}>
@@ -803,6 +1007,7 @@ function App() {
         <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
           {tabBtn("week", "① 本週輸入")}
           {tabBtn("map", "② 座位圖")}
+          {tabBtn("sheets", "③ 例會表單")}
           {tabBtn("saved", "儲存紀錄")}
           {tabBtn("roster", "名單管理")}
         </div>
@@ -831,63 +1036,89 @@ function App() {
           {/* 來賓 */}
           <div style={{ marginBottom: 22 }}>
             <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
-              來賓(中間)+ 委員(離螢幕遠側)+ 小天使
+              來賓資料
               <span style={{ fontWeight: 400, fontSize: 13, color: "#7A6E5A", marginLeft: 8 }}>
-                不指定則自動指派;委員不足時自動以小天使補位
+                姓名/行業別/邀請人等會帶入「③ 例會表單」的簽到表與桌牌;委員與小天使不指定則自動指派
               </span>
             </div>
-            {weekly.guests.map((g, i) => (
-              <div key={i} style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <input
-                  style={{ ...inputStyle, width: 130 }}
-                  placeholder="來賓姓名"
-                  value={g.name}
-                  onChange={(e) => {
-                    const gs = [...weekly.guests];
-                    gs[i] = { ...g, name: e.target.value };
-                    upWeekly({ ...weekly, guests: gs });
-                  }}
-                />
-                <select
-                  style={{ ...inputStyle, width: 168, background: C.yellow }}
-                  value={g.committee || ""}
-                  onChange={(e) => {
-                    const gs = [...weekly.guests];
-                    gs[i] = { ...g, committee: e.target.value };
-                    upWeekly({ ...weekly, guests: gs });
-                  }}
-                >
-                  <option value="">委員(自動指派)</option>
-                  {committeeOptions.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-                <select
-                  style={{ ...inputStyle, width: 168, background: C.yellow }}
-                  value={g.angel || ""}
-                  onChange={(e) => {
-                    const gs = [...weekly.guests];
-                    gs[i] = { ...g, angel: e.target.value };
-                    upWeekly({ ...weekly, guests: gs });
-                  }}
-                >
-                  <option value="">小天使(自動指派)</option>
-                  {availableOptions.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-                <button
-                  style={{ ...btn(false), padding: "6px 12px" }}
-                  onClick={() => upWeekly({ ...weekly, guests: weekly.guests.filter((_, x) => x !== i) })}
-                >
-                  刪除
-                </button>
-              </div>
-            ))}
+            {weekly.guests.map((g, i) => {
+              const setG = (patch) => {
+                const gs = [...weekly.guests];
+                gs[i] = { ...g, ...patch };
+                upWeekly({ ...weekly, guests: gs });
+              };
+              return (
+                <div key={i} style={{ border: `1.5px solid ${C.guestBorder}`, background: "#fff", borderRadius: 8, padding: "10px 12px", marginTop: 10 }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <input
+                      style={{ ...inputStyle, width: 120, background: C.guest }}
+                      placeholder="來賓姓名"
+                      value={g.name}
+                      onChange={(e) => setG({ name: e.target.value })}
+                    />
+                    <input
+                      style={{ ...inputStyle, width: 170 }}
+                      placeholder="行業別"
+                      value={g.industry || ""}
+                      onChange={(e) => setG({ industry: e.target.value })}
+                    />
+                    <input
+                      style={{ ...inputStyle, width: 110 }}
+                      placeholder="邀請人"
+                      value={g.inviter || ""}
+                      onChange={(e) => setG({ inviter: e.target.value })}
+                    />
+                    <button
+                      style={{ ...btn(false), padding: "6px 12px", marginLeft: "auto" }}
+                      onClick={() => upWeekly({ ...weekly, guests: weekly.guests.filter((_, x) => x !== i) })}
+                    >
+                      刪除
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                    <input
+                      style={{ ...inputStyle, width: 140 }}
+                      placeholder="手機號碼"
+                      value={g.phone || ""}
+                      onChange={(e) => setG({ phone: e.target.value })}
+                    />
+                    <input
+                      style={{ ...inputStyle, width: 210 }}
+                      placeholder="E-mail"
+                      value={g.email || ""}
+                      onChange={(e) => setG({ email: e.target.value })}
+                    />
+                    <select
+                      style={{ ...inputStyle, width: 168, background: C.yellow }}
+                      value={g.committee || ""}
+                      onChange={(e) => setG({ committee: e.target.value })}
+                    >
+                      <option value="">委員(自動指派)</option>
+                      {committeeOptions.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                    <select
+                      style={{ ...inputStyle, width: 168, background: C.yellow }}
+                      value={g.angel || ""}
+                      onChange={(e) => setG({ angel: e.target.value })}
+                    >
+                      <option value="">小天使(自動指派)</option>
+                      {availableOptions.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
             <button
               style={{ ...btn(false), marginTop: 10 }}
               onClick={() =>
-                upWeekly({ ...weekly, guests: [...weekly.guests, { name: "", committee: "", angel: "" }] })
+                upWeekly({
+                  ...weekly,
+                  guests: [...weekly.guests, { name: "", industry: "", phone: "", email: "", inviter: "", committee: "", angel: "" }],
+                })
               }
             >
               ＋ 新增來賓
@@ -1147,13 +1378,59 @@ function App() {
         </div>
       )}
 
+      {/* ===== 例會表單(三張表) ===== */}
+      {tab === "sheets" && (
+        <div className="no-print" style={{ padding: 20 }}>
+          {viewing && (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+              <span style={{ fontWeight: 800, fontSize: 15, background: C.yellow, border: `1.5px solid ${C.yellowBorder}`, borderRadius: 8, padding: "8px 14px" }}>
+                瀏覽儲存紀錄:{viewing.label} 的表單
+              </span>
+              <button style={btn(false)} onClick={() => { setViewing(null); setTab("saved"); }}>
+                ← 回儲存紀錄
+              </button>
+            </div>
+          )}
+          <div style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 14, lineHeight: 1.8 }}>
+            三張表自動帶入「① 本週輸入」的資料(來賓的行業別、手機、E-mail、邀請人請在輸入時填寫)。
+            出席率、實到人數等空白欄位留待例會現場手寫。各表可下載成圖檔列印。
+          </div>
+          {sheetData.guests.length === 0 && (
+            <div style={{ background: C.amber, border: "1.5px solid #D9A93F", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14 }}>
+              ⚠ 尚未輸入來賓,簽到表與桌牌為空白格式。
+            </div>
+          )}
+
+          {[
+            { key: "detail", title: "1. 例會細節表單", id: "sheet-detail", file: "例會細節表單", body: <DetailSheet data={sheetData} /> },
+            { key: "sign", title: "2. 來賓簽到表", id: "sheet-sign", file: "來賓簽到表", body: <GuestSignSheet data={sheetData} /> },
+            { key: "tent", title: "3. 來賓桌牌", id: "sheet-tent", file: "來賓桌牌", body: <TentCards data={sheetData} /> },
+          ].map((s) => (
+            <div key={s.key} style={{ marginBottom: 30 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontWeight: 800, fontSize: 16 }}>{s.title}</span>
+                <button
+                  style={{ ...btn(false), padding: "6px 14px" }}
+                  onClick={() => downloadPng(s.id, `${s.file}_${safeLabelOf(sheetData.label)}`)}
+                >
+                  📥 下載
+                </button>
+              </div>
+              <div style={{ overflowX: "auto", border: `1.5px solid ${C.seatBorder}`, borderRadius: 6, background: "#EDE8DB", padding: 12 }}>
+                <div id={s.id} style={{ width: "fit-content", boxShadow: "0 1px 6px rgba(0,0,0,.2)" }}>{s.body}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ===== 儲存紀錄 ===== */}
       {tab === "saved" && (
         <div className="no-print" style={{ padding: 20, maxWidth: 820 }}>
           <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>儲存紀錄</div>
           <div style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 14, lineHeight: 1.8 }}>
-            每次按「✓ 確認本週並存檔」都會把當週座位表存到這裡(最多保留 40 筆)。
-            紀錄存在此裝置的瀏覽器內;可點「瀏覽」查看並下載圖檔,或「刪除」清掉不需要的紀錄。
+            每次按「✓ 確認本週並存檔」都會把當週座位表與表單資料存到這裡(最多保留 40 筆)。
+            紀錄存在此裝置的瀏覽器內;「瀏覽」查看座位圖、「表單」查看當週三張表,「刪除」清掉不需要的紀錄。
           </div>
           {saved.length === 0 && (
             <div style={{ fontSize: 15 }}>目前沒有儲存的座位表。到「② 座位圖」按「✓ 確認本週並存檔」後就會出現在這裡。</div>
@@ -1177,6 +1454,17 @@ function App() {
               >
                 瀏覽
               </button>
+              {r.week && (
+                <button
+                  style={{ ...btn(false), padding: "6px 14px" }}
+                  onClick={() => {
+                    setViewing(r);
+                    setTab("sheets");
+                  }}
+                >
+                  表單
+                </button>
+              )}
               <button
                 style={{ ...btn(false), padding: "6px 14px", color: C.red, borderColor: C.red }}
                 onClick={() => {
