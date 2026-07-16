@@ -21,7 +21,7 @@ window.storage = {
 };
 </script>
 <script type="text/babel" data-presets="react">
-const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
 
 /* ---------------- 預設名單(依 115/07/15 座位表照片辨識,可於「名單管理」修改) ---------------- */
 const DEFAULT_ROSTER = {
@@ -363,69 +363,53 @@ function GuestSignSheet({ data }) {
   );
 }
 
-/* 名牌橫幅(依分會原版模板:紅弧帶+銀弧帶+BNI 標誌與英文標語) */
-const BadgeTopBand = () => (
-  <svg viewBox="0 0 400 26" width="100%" height="26" preserveAspectRatio="none" style={{ display: "block" }}>
-    <defs>
-      <linearGradient id="bdg-silver" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0" stopColor="#8f8f8f" />
-        <stop offset="0.5" stopColor="#ececec" />
-        <stop offset="1" stopColor="#8f8f8f" />
-      </linearGradient>
-    </defs>
-    <path d="M0,0 L400,0 L400,8 C300,2 100,2 0,10 Z" fill="#A6221A" />
-    <path d="M0,10 C100,2 300,2 400,8 L400,20 C300,27 100,27 0,25 Z" fill="url(#bdg-silver)" />
-  </svg>
-);
-const BadgeRedBand = () => (
-  <svg viewBox="0 0 400 28" width="100%" height="28" preserveAspectRatio="none" style={{ display: "block" }}>
-    <path d="M0,2 C120,24 300,24 400,2 L400,15 C300,32 120,32 0,16 Z" fill="#A6221A" />
-  </svg>
-);
-const BadgeSilverBand = () => (
-  <svg viewBox="0 0 400 22" width="100%" height="22" preserveAspectRatio="none" style={{ display: "block" }}>
-    <path d="M0,2 C120,18 300,18 400,0 L400,12 C300,26 120,26 0,17 Z" fill="url(#bdg-silver)" />
-  </svg>
-);
-const BadgeLogo = () => (
-  <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "5px 14px 0" }}>
-    <span style={{ color: "#A6221A", fontWeight: 900, fontStyle: "italic", fontSize: 27, fontFamily: "Arial, sans-serif", lineHeight: 1 }}>
-      BNI<span style={{ fontSize: 10, verticalAlign: "super" }}>®</span>
-    </span>
-    <span>
-      <div style={{ color: "#A6221A", fontWeight: 700, fontSize: 15, lineHeight: 1.15 }}>長城鈦金名人堂分會</div>
-      <div style={{ color: "#888", fontSize: 8.5 }}>Changing the Way the World Does Business®</div>
-    </span>
+/* 來賓名牌:分會底板(頂部銀帶+紅色緞帶+BNI 標誌+底部紅帶),單面,一張 A4 直向 8 張 */
+const BadgeCard = ({ g }) => (
+  <div style={{ position: "relative", height: "100%", overflow: "hidden", outline: "1px dashed #ddd", background: "#fff" }}>
+    <svg viewBox="0 0 380 252" preserveAspectRatio="none" style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}>
+      <defs>
+        <linearGradient id="bdg-sv" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#8f8f8f" />
+          <stop offset="0.5" stopColor="#efefef" />
+          <stop offset="1" stopColor="#8a8a8a" />
+        </linearGradient>
+      </defs>
+      <path d="M0,0 L380,0 L380,9 C300,17 120,19 0,13 Z" fill="url(#bdg-sv)" />
+      <path d="M0,72 C110,68 210,58 285,40 C330,28 362,16 380,12 L380,46 C345,54 275,66 205,74 C135,80 60,82 0,80 Z" fill="#A6221A" />
+      <path d="M0,252 L0,232 C60,222 150,226 230,218 C290,212 350,202 380,196 L380,252 Z" fill="#A6221A" />
+    </svg>
+    <div style={{ position: "relative", display: "flex", alignItems: "flex-start", gap: 7, padding: "14px 0 0 14px" }}>
+      <span style={{ color: "#A6221A", fontWeight: 900, fontStyle: "italic", fontSize: 30, fontFamily: "Arial, sans-serif", lineHeight: 1 }}>
+        BNI<span style={{ fontSize: 10, verticalAlign: "super" }}>®</span>
+      </span>
+      <span>
+        <div style={{ color: "#A6221A", fontWeight: 700, fontSize: 16, lineHeight: 1.15 }}>長城鈦金名人堂分會</div>
+        <div style={{ color: "#777", fontSize: 8.5 }}>Changing the Way the World Does Business®</div>
+      </span>
+    </div>
+    <div style={{ position: "relative", padding: "30px 14px 0" }}>
+      <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: 6, whiteSpace: "nowrap", overflow: "hidden", lineHeight: 1.2 }}>
+        {g && g.name ? g.name : " "}
+      </div>
+      <div style={{ fontSize: 18, textAlign: "center", minHeight: 24, marginTop: 2 }}>{g && g.industry ? g.industry : " "}</div>
+      <div style={{ fontSize: 17, textAlign: "right", padding: "2px 14px 0", minHeight: 24 }}>
+        {g && g.inviter ? `${g.inviter} 來賓` : " "}
+      </div>
+    </div>
   </div>
 );
 
 function NameBadges({ data }) {
   const guests = data.guests || [];
-  /* 依原版模板:對摺立牌、一張 A4 直向 3 列×2 欄=6 張;超過 6 位往下延伸(列印自動分頁) */
-  const slots = Math.max(6, Math.ceil(guests.length / 2) * 2);
+  /* 一張 A4 直向 4 列×2 欄=8 張;超過 8 位自動延伸下一張(列印自動分頁) */
+  const slots = Math.max(8, Math.ceil(guests.length / 2) * 2);
   const cards = Array.from({ length: slots }, (_, i) => guests[i] || null);
-  const CARD_H = 341; // 3 列恰好填滿 A4 直向
+  const CARD_H = 255;
   return (
-    <div style={{ width: A4.shortSide, minHeight: A4.longSide, boxSizing: "border-box", background: "#fff", color: "#000", padding: "25px 20px", fontFamily: KAI, display: "grid", gridTemplateColumns: "1fr 1fr", gridAutoRows: `${CARD_H}px`, gap: "12px 14px" }}>
+    <div style={{ width: A4.shortSide, minHeight: A4.longSide, boxSizing: "border-box", background: "#fff", color: "#000", padding: "26px 20px", fontFamily: KAI, display: "grid", gridTemplateColumns: "1fr 1fr", gridAutoRows: `${CARD_H}px`, gap: "14px 14px" }}>
       {cards.map((g, i) => (
-        <div key={i} style={{ height: CARD_H, boxSizing: "border-box", display: "flex", flexDirection: "column", overflow: "hidden", outline: "1px dashed #ddd" }}>
-          {/* 正面(摺線上方):橫幅+BNI+姓名/行業/邀請人 */}
-          <BadgeTopBand />
-          <BadgeLogo />
-          <div style={{ fontSize: 46, fontWeight: 700, letterSpacing: 7, padding: "6px 16px 0", whiteSpace: "nowrap", overflow: "hidden", lineHeight: 1.15 }}>
-            {g && g.name ? g.name : " "}
-          </div>
-          <div style={{ fontSize: 20, textAlign: "center", minHeight: 26, marginTop: 2 }}>{g && g.industry ? g.industry : " "}</div>
-          <div style={{ fontSize: 19, textAlign: "right", padding: "2px 26px 6px", minHeight: 26 }}>
-            {g && g.inviter ? `${g.inviter} 來賓` : " "}
-          </div>
-          <div style={{ flex: 1 }} />
-          {/* 摺線:紅帶+銀帶,下方為背面品牌帶 */}
-          <BadgeRedBand />
-          <BadgeSilverBand />
-          <BadgeLogo />
-          <div style={{ flex: 2 }} />
-          <BadgeRedBand />
+        <div key={i} style={{ height: CARD_H }}>
+          <BadgeCard g={g} />
         </div>
       ))}
     </div>
@@ -452,6 +436,29 @@ function App() {
   const [viewing, setViewing] = useState(null);
   const [confirmDlg, setConfirmDlg] = useState(null); // {message, onConfirm}
   const askConfirm = (message, onConfirm) => setConfirmDlg({ message, onConfirm });
+
+  /* 座位圖縮放:電腦版整張不超出畫面寬度(下載時仍以原始尺寸輸出) */
+  const mapWrapRef = useRef(null);
+  const mapInnerRef = useRef(null);
+  const [mapScale, setMapScale] = useState(1);
+  const [mapBoxH, setMapBoxH] = useState(null);
+  useEffect(() => {
+    const fit = () => {
+      const wrap = mapWrapRef.current;
+      const inner = mapInnerRef.current;
+      if (!wrap || !inner) {
+        setMapScale(1);
+        setMapBoxH(null);
+        return;
+      }
+      const s = Math.min(1, wrap.clientWidth / inner.offsetWidth);
+      setMapScale(s);
+      setMapBoxH(Math.ceil(inner.offsetHeight * s));
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  });
 
   /* ---------- 管理員登入(前端門檻:僅防誤用,無法防原始碼檢視) ---------- */
   const [authed, setAuthed] = useState(() => {
@@ -674,11 +681,11 @@ function App() {
       return i >= 0 ? pool.splice(i, 1)[0] : null;
     };
 
-    /* 大使桌:大使+助理大使固定同桌不拆開,第三個位子開放給會員 */
+    /* 大使桌:大使+董顧固定同桌不拆開,第三個位子開放給會員 */
     const ambTable = {
       seats: [
         { name: roster.ambassadors[0] || "大使", kind: "amb" },
-        { name: roster.ambassadors[1] || "助理大使", kind: "amb" },
+        { name: roster.ambassadors[1] || "董顧", kind: "amb" },
       ],
       type: "amb",
     };
@@ -820,6 +827,43 @@ function App() {
       slots[z] = slots[z].map((t) => t || rest.shift()).filter(Boolean);
     });
 
+    /* 三席鐵律:每桌固定 3 個位置、對齊;沒坐滿的以「空位」補足(空位排在桌子下方/外側) */
+    const padTable = (t) => {
+      while (t.seats.length < 3) t.seats.push({ name: "", kind: "empty" });
+    };
+    ["LO", "LI", "RI", "RO", "bottom"].forEach((z) => slots[z].forEach(padTable));
+    padTable(ambTable);
+
+    /* 空位桌一律移至口字最靠底部的角落:左外側最下,其次右外側最下(代理桌之上) */
+    const hasEmpty = (t) => t.type === "member" && t.seats.some((s) => s.kind === "empty");
+    const partialPos = [];
+    ["LO", "LI", "RI", "RO", "bottom"].forEach((z) => {
+      slots[z].forEach((t, i) => {
+        if (hasEmpty(t)) partialPos.push([z, i]);
+      });
+    });
+    const cornerTargets = [];
+    if (slots.LO.length) cornerTargets.push(["LO", slots.LO.length - 1]);
+    for (let i = slots.RO.length - 1; i >= 0; i--) {
+      if (slots.RO[i].type !== "proxy") {
+        cornerTargets.push(["RO", i]);
+        break;
+      }
+    }
+    cornerTargets.forEach(([tz, ti]) => {
+      if (!partialPos.length) return;
+      const target = slots[tz][ti];
+      if (hasEmpty(target)) {
+        const k = partialPos.findIndex(([z, i]) => z === tz && i === ti);
+        if (k >= 0) partialPos.splice(k, 1);
+        return;
+      }
+      if (target.type !== "member") return;
+      const [pz, pi] = partialPos.shift();
+      slots[tz][ti] = slots[pz][pi];
+      slots[pz][pi] = target;
+    });
+
     /* 委員方位調整:
        直排桌 seats 由上而下,上=靠舞台/螢幕 → 委員(離螢幕遠)在下方(index 2),建桌時已如此。
        底排橫桌 seats 由左而右,離螢幕遠=離中央走道較遠側 → 左半邊的桌委員在左(反轉),右半邊維持在右。 */
@@ -832,7 +876,9 @@ function App() {
     for (let i = 0; i < vTables; i++) {
       const n = Math.max(1, Math.min(3, visitorCount - i * 3));
       slots.bottom.push({
-        seats: Array.from({ length: n }, () => ({ name: "參訪", kind: "visitor" })),
+        seats: Array.from({ length: 3 }, (_, x) =>
+          x < n ? { name: "參訪", kind: "visitor" } : { name: "", kind: "empty" }
+        ),
         type: "visitor",
       });
     }
@@ -893,11 +939,44 @@ function App() {
   };
 
   const Seat = ({ seat, z, t, s }) => {
+    const emptyStyle = {
+      ...seatStyle("member"),
+      background: "#FFFDF7",
+      border: "1.5px dashed #C8BC9A",
+      boxShadow: "none",
+      color: "#C5BA9E",
+      fontWeight: 500,
+    };
     if (seat.kind === "amb" || seat.kind === "visitor" || viewing) {
-      return <div style={{ ...seatStyle(seat.kind), cursor: "default" }}>{seat.name}</div>;
+      return (
+        <div style={{ ...(seat.kind === "empty" ? emptyStyle : seatStyle(seat.kind)), cursor: "default" }}>
+          {seat.kind === "empty" ? "空位" : seat.name}
+        </div>
+      );
     }
     const k = keyOf(z, t, s);
     const isSel = sel && keyOf(sel.z, sel.t, sel.s) === k;
+    if (seat.kind === "empty") {
+      return (
+        <div
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            handleDrop(e.dataTransfer.getData("text/plain"), { z, t, s });
+          }}
+          onClick={() => handleSeatClick({ z, t, s })}
+          style={{
+            ...emptyStyle,
+            cursor: "pointer",
+            outline: isSel ? `3px solid ${C.red}` : "none",
+            outlineOffset: 1,
+          }}
+          title="空位:點選或拖曳名字可移到此"
+        >
+          空位
+        </div>
+      );
+    }
     const roleTip =
       seat.kind === "committee" ? "委員(離螢幕較遠側)" : seat.kind === "angel" ? "小天使" : "";
     return (
@@ -1080,7 +1159,7 @@ function App() {
       name,
       { ambassadors: roster.ambassadors.map((n, x) => (x === i ? name : n)) },
       (roster.ambassadors[i] || "").trim(),
-      i === 0 ? "大使" : "助理大使"
+      i === 0 ? "大使" : "董顧"
     );
   const dropCommittee = (name) => {
     if ((roster.committee || []).some((c) => c.trim() === name)) return;
@@ -1099,7 +1178,7 @@ function App() {
   const unassignAmb = (i) => {
     const old = (roster.ambassadors[i] || "").trim();
     if (!old) return;
-    releaseTo(old, { ambassadors: roster.ambassadors.map((n, x) => (x === i ? "" : n)) }, i === 0 ? "大使" : "助理大使");
+    releaseTo(old, { ambassadors: roster.ambassadors.map((n, x) => (x === i ? "" : n)) }, i === 0 ? "大使" : "董顧");
   };
   const unassignCommittee = (name) =>
     releaseTo(name, { committee: (roster.committee || []).filter((c) => c.trim() !== name) }, "委員");
@@ -1184,6 +1263,8 @@ function App() {
       window.print(); // 圖檔函式庫未載入(離線)時退回列印
       return Promise.resolve();
     }
+    const prevTransform = el.style.transform; // 座位圖螢幕縮放不影響下載尺寸
+    el.style.transform = "none";
     return window
       .html2canvas(el, {
         backgroundColor: "#ffffff",
@@ -1204,6 +1285,9 @@ function App() {
       )
       .catch(() => {
         window.print();
+      })
+      .finally(() => {
+        el.style.transform = prevTransform;
       });
   };
   /* 一鍵同步下載:座位圖 + 例會細節表單 + 來賓簽到表 + 來賓名牌(共 4 張) */
@@ -1548,9 +1632,14 @@ function App() {
                 </div>
               )}
 
-              {/* 口字座位圖 */}
-              <div id="seatmap" style={{ background: "#fff", border: `2px solid ${C.ink}`, borderRadius: 6, padding: "18px 16px 24px", overflowX: "auto" }}>
-                <div style={{ minWidth: 900 }}>
+              {/* 口字座位圖(電腦版自動縮放,不超出畫面寬度) */}
+              <div ref={mapWrapRef} style={{ overflow: "hidden", height: mapBoxH || "auto" }}>
+                <div
+                  id="seatmap"
+                  ref={mapInnerRef}
+                  style={{ background: "#fff", border: `2px solid ${C.ink}`, borderRadius: 6, padding: "18px 16px 24px", width: "fit-content", transform: `scale(${mapScale})`, transformOrigin: "top left" }}
+                >
+                  <div style={{ minWidth: 900 }}>
                   {/* 上排:主席排 + 電音 */}
                   <div style={{ display: "flex", justifyContent: "center", gap: 40, alignItems: "flex-start" }}>
                     <div style={{ display: "flex", gap: 10 }}>
@@ -1612,16 +1701,18 @@ function App() {
                     </div>
                   </div>
 
-                  {/* 底排(大使桌固定在左,其餘桌排數自動) */}
+                  {/* 底排;大使董顧桌斜放左下角,不在口字範圍內 */}
                   <div style={{ display: "flex", justifyContent: "center", gap: 26, marginTop: 26, alignItems: "flex-start" }}>
-                    <div>
-                      <div style={{ display: "flex", gap: 4 }}>
-                        {mapView.zones.amb[0].seats.map((st, si) => (
-                          <Seat key={si} seat={st} z="amb" t={0} s={si} />
-                        ))}
-                      </div>
-                      <div style={{ textAlign: "center", fontSize: 12, color: C.blueBorder, fontWeight: 700, marginTop: 3 }}>
-                        大使桌(大使+助理大使不分開)
+                    <div style={{ position: "relative", width: 330, height: 190, flex: "none" }}>
+                      <div style={{ position: "absolute", left: -6, top: 46, transform: "rotate(-22deg)", transformOrigin: "center" }}>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          {mapView.zones.amb[0].seats.map((st, si) => (
+                            <Seat key={si} seat={st} z="amb" t={0} s={si} />
+                          ))}
+                        </div>
+                        <div style={{ textAlign: "center", fontSize: 12, color: C.blueBorder, fontWeight: 700, marginTop: 3 }}>
+                          大使董顧桌(斜放左下角)
+                        </div>
                       </div>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1643,10 +1734,11 @@ function App() {
                   </div>
                 </div>
               </div>
+              </div>
               {/* 例會表單:與座位圖同頁,隨「一鍵下載」一起輸出 */}
               <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", margin: "18px 0 12px", lineHeight: 1.8 }}>
                 以下表單自動帶入「① 本週輸入」的資料,並隨上方「一鍵下載」同步輸出。
-                細節表單與簽到表為 A4 橫向、名牌為 A4 直向(一頁 8 張);出席率等空白欄位留待現場手寫。
+                細節表單與簽到表為 A4 橫向、名牌為 A4 直向(一頁 8 張,超過自動延伸);出席率等空白欄位留待現場手寫。
               </div>
               {sheetData.guests.length === 0 && (
                 <div className="no-print" style={{ background: C.amber, border: "1.5px solid #D9A93F", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14 }}>
@@ -1797,7 +1889,7 @@ function App() {
             {roster.ambassadors.map((n, i) => (
               <div key={"a" + i} {...dropProps((nm) => dropAmb(i, nm))}>
                 <div style={{ fontSize: 12.5, fontWeight: 700, color: C.blueBorder, marginBottom: 3 }}>
-                  {i === 0 ? "大使" : "助理大使"}
+                  {i === 0 ? "大使" : "董顧"}
                   {(n || "").trim() && (
                     <button
                       style={{ border: "none", background: "none", color: C.red, cursor: "pointer", fontWeight: 900, marginLeft: 4, fontSize: 13 }}
@@ -1821,7 +1913,7 @@ function App() {
             ))}
           </div>
           <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 14 }}>
-            大使與助理大使固定同桌、位置不變,系統會自動安排一位會員與他們同桌(每週輪換)。
+            大使與董顧固定同桌、位置不變,系統會自動安排一位會員與他們同桌(每週輪換)。
           </div>
 
           {/* 拖曳指派:會員池 + 委員區 */}
