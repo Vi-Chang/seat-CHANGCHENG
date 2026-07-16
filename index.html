@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>html,body,#root{margin:0;padding:0}</style>
 </head>
 <body>
@@ -237,6 +238,8 @@ function App() {
   const [confirmArm, setConfirmArm] = useState(false);
   const [msg, setMsg] = useState("");
   const [sel, setSel] = useState(null);
+  const [saved, setSaved] = useState([]);
+  const [viewing, setViewing] = useState(null);
 
   /* 載入儲存資料 */
   useEffect(() => {
@@ -255,6 +258,13 @@ function App() {
       try {
         const h = await window.storage.get("gw-history");
         if (h) setHistory(JSON.parse(h.value));
+      } catch (e) {}
+      try {
+        const s = await window.storage.get("gw-saved");
+        if (s) {
+          const list = JSON.parse(s.value);
+          if (Array.isArray(list)) setSaved(list);
+        }
       } catch (e) {}
       try {
         const w = await window.storage.get("gw-weekly");
@@ -588,8 +598,8 @@ function App() {
   };
 
   const Seat = ({ seat, z, t, s }) => {
-    if (seat.kind === "amb") {
-      return <div style={{ ...seatStyle("amb"), cursor: "default" }}>{seat.name}</div>;
+    if (seat.kind === "amb" || viewing) {
+      return <div style={{ ...seatStyle(seat.kind), cursor: "default" }}>{seat.name}</div>;
     }
     const k = keyOf(z, t, s);
     const isSel = sel && keyOf(sel.z, sel.t, sel.s) === k;
@@ -652,11 +662,24 @@ function App() {
     const h = { label: weekly.label, groups };
     setHistory(h);
     persist("gw-history", h);
+    /* 完整座位表快照,供「儲存紀錄」瀏覽/刪除 */
+    const rec = {
+      id: Date.now(),
+      label: weekly.label,
+      zones: JSON.parse(JSON.stringify(z)),
+      agenda: [...weekly.agenda],
+      stats: result.stats,
+      chairRow: roster.chairRow.map((c) => ({ ...c })),
+      sound: [...roster.sound],
+    };
+    const list = [rec, ...saved].slice(0, 40);
+    setSaved(list);
+    persist("gw-saved", list);
     const fresh = emptyWeekly();
     setWeekly(fresh);
     persist("gw-weekly", fresh);
     setConfirmArm(false);
-    setMsg(`已存檔 ${h.label} 分桌紀錄(含手動調整),下週排位將自動避開本週同桌組合。`);
+    setMsg(`已存檔 ${h.label} 分桌紀錄(含手動調整),並加入「儲存紀錄」;下週排位將自動避開本週同桌組合。`);
   };
 
   const saveRoster = () => {
@@ -690,7 +713,10 @@ function App() {
 
   const tabBtn = (id, label) => (
     <button
-      onClick={() => setTab(id)}
+      onClick={() => {
+        setTab(id);
+        setViewing(null);
+      }}
       style={{
         ...btn(false),
         background: tab === id ? C.red : "transparent",
@@ -726,6 +752,38 @@ function App() {
     return rows.length ? rows : [[]];
   };
 
+  /* 座位圖資料來源:瀏覽儲存紀錄時用快照,否則用本週產生結果 */
+  const mapView = viewing
+    ? viewing
+    : result
+    ? { label: weekly.label, zones: result.zones, agenda: weekly.agenda, stats: result.stats, chairRow: roster.chairRow, sound: roster.sound }
+    : null;
+
+  const downloadMap = () => {
+    const el = document.getElementById("seatmap");
+    if (!el) return;
+    if (!window.html2canvas) {
+      window.print(); // 圖檔函式庫未載入(離線)時退回列印
+      return;
+    }
+    window
+      .html2canvas(el, {
+        backgroundColor: "#ffffff",
+        scale: 2,
+        width: el.scrollWidth,
+        height: el.scrollHeight,
+        windowWidth: el.scrollWidth + 60,
+      })
+      .then((canvas) => {
+        const a = document.createElement("a");
+        const safe = ((mapView && mapView.label) || "座位表").replace(/[\\/:*?"<>|]/g, "-");
+        a.download = `長城分會座位表_${safe}.png`;
+        a.href = canvas.toDataURL("image/png");
+        a.click();
+      })
+      .catch(() => window.print());
+  };
+
   return (
     <div style={{ fontFamily: FONT, background: C.paper, minHeight: "100vh", color: C.ink }}>
       <style>{`
@@ -745,6 +803,7 @@ function App() {
         <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
           {tabBtn("week", "① 本週輸入")}
           {tabBtn("map", "② 座位圖")}
+          {tabBtn("saved", "儲存紀錄")}
           {tabBtn("roster", "名單管理")}
         </div>
       </div>
@@ -945,28 +1004,43 @@ function App() {
       {/* ===== 座位圖 ===== */}
       {tab === "map" && (
         <div style={{ padding: 20 }}>
-          {!result && (
+          {!mapView && (
             <div className="no-print" style={{ fontSize: 15 }}>
               尚未產生座位表。請先到「① 本週輸入」填好資料,再按「產生本週座位表」。
             </div>
           )}
-          {result && (
+          {mapView && (
             <>
               <div className="no-print" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 8, alignItems: "center" }}>
-                <button style={btn(false)} onClick={generate}>🔀 重新洗牌</button>
-                <button style={btn(true)} onClick={confirmWeek}>
-                  {confirmArm ? "再按一次確認存檔" : "✓ 確認本週並存檔"}
-                </button>
-                <button style={btn(false)} onClick={() => window.print()}>🖨 列印</button>
+                {viewing ? (
+                  <>
+                    <span style={{ fontWeight: 800, fontSize: 15, background: C.yellow, border: `1.5px solid ${C.yellowBorder}`, borderRadius: 8, padding: "8px 14px" }}>
+                      瀏覽儲存紀錄:{viewing.label}(唯讀)
+                    </span>
+                    <button style={btn(false)} onClick={() => { setViewing(null); setTab("saved"); }}>
+                      ← 回儲存紀錄
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button style={btn(false)} onClick={generate}>🔀 重新洗牌</button>
+                    <button style={btn(true)} onClick={confirmWeek}>
+                      {confirmArm ? "再按一次確認存檔" : "✓ 確認本週並存檔"}
+                    </button>
+                  </>
+                )}
+                <button style={btn(false)} onClick={downloadMap}>📥 下載座位圖</button>
               </div>
               <div className="no-print" style={{ marginBottom: 8 }}>{legend}</div>
-              <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 12 }}>
-                底排排數自動(本週:{result.stats.bottomRows} 排)。來賓桌視野優先:底排內圈 → 內圈直排 → 底排第二排 → 外圈。
-                來賓兩側:黃色=委員/小天使,委員在離螢幕較遠側(直排=下方座位)。
-                新人-導師固定同桌。點選或拖曳名字可交換;大使席固定。存檔以畫面目前位置為準。
-              </div>
+              {!viewing && (
+                <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 12 }}>
+                  底排排數自動(本週:{result.stats.bottomRows} 排)。來賓桌視野優先:底排內圈 → 內圈直排 → 底排第二排 → 外圈。
+                  來賓兩側:黃色=委員/小天使,委員在離螢幕較遠側(直排=下方座位)。
+                  新人-導師固定同桌。點選或拖曳名字可交換;大使席固定。存檔以畫面目前位置為準。
+                </div>
+              )}
 
-              {result.warnings.length > 0 && (
+              {!viewing && result.warnings.length > 0 && (
                 <div className="no-print" style={{ background: C.amber, border: "1.5px solid #D9A93F", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14 }}>
                   {result.warnings.map((w, i) => (
                     <div key={i}>⚠ {w}</div>
@@ -975,12 +1049,12 @@ function App() {
               )}
 
               {/* 口字座位圖 */}
-              <div style={{ background: "#fff", border: `2px solid ${C.ink}`, borderRadius: 6, padding: "18px 16px 24px", overflowX: "auto" }}>
+              <div id="seatmap" style={{ background: "#fff", border: `2px solid ${C.ink}`, borderRadius: 6, padding: "18px 16px 24px", overflowX: "auto" }}>
                 <div style={{ minWidth: 900 }}>
                   {/* 上排:主席排 + 電音 */}
                   <div style={{ display: "flex", justifyContent: "center", gap: 40, alignItems: "flex-start" }}>
                     <div style={{ display: "flex", gap: 10 }}>
-                      {roster.chairRow.map((c, i) => (
+                      {mapView.chairRow.map((c, i) => (
                         <div key={i}>
                           <div style={seatStyle("member")}>{c.name || "—"}</div>
                           <div style={{ background: C.red, color: "#fff", textAlign: "center", fontSize: 13, fontWeight: 700, padding: "3px 0", borderRadius: 3, marginTop: 3, letterSpacing: 2 }}>
@@ -991,7 +1065,7 @@ function App() {
                     </div>
                     <div>
                       <div style={{ display: "flex", gap: 6 }}>
-                        {roster.sound.map((n, i) => (
+                        {mapView.sound.map((n, i) => (
                           <div key={i} style={seatStyle("member")}>{n || "—"}</div>
                         ))}
                       </div>
@@ -1004,8 +1078,8 @@ function App() {
                   {/* 中段 */}
                   <div style={{ display: "flex", justifyContent: "space-between", marginTop: 26, gap: 18 }}>
                     <div style={{ display: "flex", gap: 18 }}>
-                      <Column z="LO" tables={result.zones.LO} />
-                      <Column z="LI" tables={result.zones.LI} />
+                      <Column z="LO" tables={mapView.zones.LO} />
+                      <Column z="LI" tables={mapView.zones.LI} />
                     </div>
 
                     <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 8 }}>
@@ -1014,26 +1088,26 @@ function App() {
                         <div style={{ fontSize: 14 }}>主題簡報區</div>
                       </div>
                       <div style={{ marginTop: 18, textAlign: "center", fontWeight: 800, fontSize: 17 }}>
-                        長城分會 {weekly.label} 例會
+                        長城分會 {mapView.label} 例會
                         <div style={{ fontSize: 15, marginTop: 4 }}>
-                          會員:{result.stats.totalMembers}人 來賓:{result.stats.guests}位
+                          會員:{mapView.stats.totalMembers}人 來賓:{mapView.stats.guests}位
                         </div>
                         <div style={{ fontSize: 13, marginTop: 4, color: "#7A6E5A", fontWeight: 500 }}>
-                          出席 {result.stats.attending}・代理 {result.stats.proxies}・缺席 {result.stats.absentNoProxy}
+                          出席 {mapView.stats.attending}・代理 {mapView.stats.proxies}・缺席 {mapView.stats.absentNoProxy}
                         </div>
                       </div>
                       <div style={{ marginTop: 16, textAlign: "left", fontSize: 15, fontWeight: 700, lineHeight: 2 }}>
                         {AGENDA.map((title, i) => (
                           <div key={i}>
-                            {CIRCLED[i]} {title}:{weekly.agenda[i] ? weekly.agenda[i] : "＿＿＿"}
+                            {CIRCLED[i]} {title}:{mapView.agenda[i] ? mapView.agenda[i] : "＿＿＿"}
                           </div>
                         ))}
                       </div>
                     </div>
 
                     <div style={{ display: "flex", gap: 18 }}>
-                      <Column z="RI" tables={result.zones.RI} />
-                      <Column z="RO" tables={result.zones.RO} />
+                      <Column z="RI" tables={mapView.zones.RI} />
+                      <Column z="RO" tables={mapView.zones.RO} />
                     </div>
                   </div>
 
@@ -1041,7 +1115,7 @@ function App() {
                   <div style={{ display: "flex", justifyContent: "center", gap: 26, marginTop: 26, alignItems: "flex-start" }}>
                     <div>
                       <div style={{ display: "flex", gap: 4 }}>
-                        {result.zones.amb[0].seats.map((st, si) => (
+                        {mapView.zones.amb[0].seats.map((st, si) => (
                           <Seat key={si} seat={st} z="amb" t={0} s={si} />
                         ))}
                       </div>
@@ -1050,10 +1124,10 @@ function App() {
                       </div>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                      {bottomRowsOf(result.zones.bottom).map((row, ri) => (
+                      {bottomRowsOf(mapView.zones.bottom).map((row, ri) => (
                         <div key={ri} style={{ display: "flex", gap: 26 }}>
                           {row.map((tb) => {
-                            const ti = result.zones.bottom.indexOf(tb);
+                            const ti = mapView.zones.bottom.indexOf(tb);
                             return (
                               <div key={ti} style={{ display: "flex", gap: 4 }}>
                                 {tb.seats.map((st, si) => (
@@ -1070,6 +1144,52 @@ function App() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* ===== 儲存紀錄 ===== */}
+      {tab === "saved" && (
+        <div className="no-print" style={{ padding: 20, maxWidth: 820 }}>
+          <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>儲存紀錄</div>
+          <div style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 14, lineHeight: 1.8 }}>
+            每次按「✓ 確認本週並存檔」都會把當週座位表存到這裡(最多保留 40 筆)。
+            紀錄存在此裝置的瀏覽器內;可點「瀏覽」查看並下載圖檔,或「刪除」清掉不需要的紀錄。
+          </div>
+          {saved.length === 0 && (
+            <div style={{ fontSize: 15 }}>目前沒有儲存的座位表。到「② 座位圖」按「✓ 確認本週並存檔」後就會出現在這裡。</div>
+          )}
+          {saved.map((r) => (
+            <div
+              key={r.id}
+              style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", background: "#fff", border: `1.5px solid ${C.seatBorder}`, borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}
+            >
+              <div style={{ fontWeight: 800, fontSize: 16, minWidth: 100 }}>{r.label}</div>
+              <div style={{ fontSize: 13, color: "#7A6E5A", flex: 1, minWidth: 220 }}>
+                存檔於 {new Date(r.id).toLocaleString("zh-TW", { hour12: false })}
+                {r.stats ? `・出席 ${r.stats.attending}・來賓 ${r.stats.guests}・代理 ${r.stats.proxies}` : ""}
+              </div>
+              <button
+                style={{ ...btn(false), padding: "6px 14px" }}
+                onClick={() => {
+                  setViewing(r);
+                  setTab("map");
+                }}
+              >
+                瀏覽
+              </button>
+              <button
+                style={{ ...btn(false), padding: "6px 14px", color: C.red, borderColor: C.red }}
+                onClick={() => {
+                  if (!window.confirm(`確定刪除 ${r.label} 的座位表紀錄?刪除後無法復原。`)) return;
+                  const list = saved.filter((x) => x.id !== r.id);
+                  setSaved(list);
+                  persist("gw-saved", list);
+                }}
+              >
+                刪除
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
