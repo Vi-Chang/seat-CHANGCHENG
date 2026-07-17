@@ -1707,7 +1707,7 @@ function App() {
                   {/* 底排;大使董顧桌斜放左下角,不在口字範圍內 */}
                   <div style={{ display: "flex", justifyContent: "center", gap: 26, marginTop: 26, alignItems: "flex-start" }}>
                     <div style={{ position: "relative", width: 330, height: 190, flex: "none" }}>
-                      <div style={{ position: "absolute", left: -6, top: 46, transform: "rotate(-22deg)", transformOrigin: "center" }}>
+                      <div style={{ position: "absolute", left: -6, top: 46, transform: "rotate(22deg)", transformOrigin: "center" }}>
                         <div style={{ display: "flex", gap: 4 }}>
                           {mapView.zones.amb[0].seats.map((st, si) => (
                             <Seat key={si} seat={st} z="amb" t={0} s={si} />
