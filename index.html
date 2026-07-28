@@ -8,6 +8,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- 載入網路字型,確保座位表名字在任何電腦上都用同一套字型(避免罕用字缺字退回不同備援字型) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>html,body,#root{margin:0;padding:0}</style>
 </head>
 <body>
@@ -1281,56 +1285,51 @@ function App() {
 
   const safeLabelOf = (label) => (label || "未命名").replace(/[\\/:*?"<>|]/g, "-");
   /* a4:"landscape"|"portrait" 時,把擷取結果置中縮放貼到 A4 畫布,確保下載檔為 A4 尺寸 */
-  const downloadPng = (elId, filename, a4) => {
+  const downloadPng = async (elId, filename, a4) => {
     const el = document.getElementById(elId);
-    if (!el) return Promise.resolve();
+    if (!el) return;
     if (!window.html2canvas) {
       window.print(); // 圖檔函式庫未載入(離線)時退回列印
-      return Promise.resolve();
+      return;
     }
     const prevTransform = el.style.transform; // 座位圖螢幕縮放不影響下載尺寸
     el.style.transform = "none";
-    return window
-      .html2canvas(el, {
+    try {
+      if (document.fonts && document.fonts.ready) await document.fonts.ready; // 等網路字型就緒,下載檔字型一致
+      const canvas = await window.html2canvas(el, {
         backgroundColor: "#ffffff",
         scale: 2,
         width: el.scrollWidth,
         height: el.scrollHeight,
         windowWidth: el.scrollWidth + 60,
-      })
-      .then(
-        (canvas) =>
-          new Promise((resolve) => {
-            let out = canvas;
-            if (a4) {
-              const sf = 2; // 與 html2canvas scale 一致
-              const aw = (a4 === "portrait" ? A4.shortSide : A4.longSide) * sf;
-              const ah = (a4 === "portrait" ? A4.longSide : A4.shortSide) * sf;
-              const target = document.createElement("canvas");
-              target.width = aw;
-              target.height = ah;
-              const ctx = target.getContext("2d");
-              ctx.fillStyle = "#ffffff";
-              ctx.fillRect(0, 0, aw, ah);
-              const s = Math.min(aw / canvas.width, ah / canvas.height);
-              const w = canvas.width * s;
-              const h = canvas.height * s;
-              ctx.drawImage(canvas, (aw - w) / 2, (ah - h) / 2, w, h);
-              out = target;
-            }
-            const a = document.createElement("a");
-            a.download = filename + ".png";
-            a.href = out.toDataURL("image/png");
-            a.click();
-            setTimeout(resolve, 500); // 間隔一下,避免瀏覽器擋多檔連續下載
-          })
-      )
-      .catch(() => {
-        window.print();
-      })
-      .finally(() => {
-        el.style.transform = prevTransform;
       });
+      let out = canvas;
+      if (a4) {
+        const sf = 2; // 與 html2canvas scale 一致
+        const aw = (a4 === "portrait" ? A4.shortSide : A4.longSide) * sf;
+        const ah = (a4 === "portrait" ? A4.longSide : A4.shortSide) * sf;
+        const target = document.createElement("canvas");
+        target.width = aw;
+        target.height = ah;
+        const ctx = target.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, aw, ah);
+        const s = Math.min(aw / canvas.width, ah / canvas.height);
+        const w = canvas.width * s;
+        const h = canvas.height * s;
+        ctx.drawImage(canvas, (aw - w) / 2, (ah - h) / 2, w, h);
+        out = target;
+      }
+      const a = document.createElement("a");
+      a.download = filename + ".png";
+      a.href = out.toDataURL("image/png");
+      a.click();
+      await new Promise((r) => setTimeout(r, 500)); // 間隔一下,避免瀏覽器擋多檔連續下載
+    } catch (e) {
+      window.print();
+    } finally {
+      el.style.transform = prevTransform;
+    }
   };
   /* 一鍵同步下載:座位圖 + 例會細節表單 + 來賓簽到表 + 來賓名牌(皆為 A4) */
   const downloadMeetingSet = async () => {
