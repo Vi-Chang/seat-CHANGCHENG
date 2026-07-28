@@ -36,6 +36,8 @@ const DEFAULT_ROSTER = {
   ambassadors: ["", ""],
   /* 委員名單(隨領導團隊改選一起更新) */
   committee: ["張立予", "羅舒妍", "許淑媛", "李翠松", "鄧力瑋", "吳俊霖", "曹珩堉", "胡芸榛"],
+  /* 教育組員名單(僅供「教育培訓」下拉選單,不影響排座位;一鍵卸除職務時一併清空) */
+  eduTeam: ["于美云", "陳佩妏", "羅舒妍", "郭亭君", "曹珩堉", "江品萱", "周珈汶", "趙一蒨"],
   /* 新人-導師綁定(約 8 週,期滿刪除) */
   mentorPairs: [],
   /* 會員名單不含委員(委員為獨立名單,排位時一起輪換) */
@@ -502,6 +504,7 @@ function App() {
         if (r) {
           const parsed = { ...DEFAULT_ROSTER, ...JSON.parse(r.value) };
           if (!Array.isArray(parsed.committee)) parsed.committee = DEFAULT_ROSTER.committee;
+          if (!Array.isArray(parsed.eduTeam)) parsed.eduTeam = DEFAULT_ROSTER.eduTeam;
           if (!Array.isArray(parsed.mentorPairs)) parsed.mentorPairs = [];
           if (!Array.isArray(parsed.sound)) parsed.sound = [...DEFAULT_ROSTER.sound];
           while (parsed.sound.length < 3) parsed.sound.push(""); // 電音固定 3 格(可留空)
@@ -1091,6 +1094,23 @@ function App() {
       setMsg(`已刪除會員「${name}」。`);
     });
 
+  /* 教育組員:僅供「教育培訓」下拉,不影響排座位 */
+  const [newEdu, setNewEdu] = useState("");
+  const addEdu = () => {
+    const name = newEdu.trim();
+    if (!name) return;
+    if ((roster.eduTeam || []).some((m) => m.trim() === name)) {
+      setMsg(`「${name}」已在教育組員名單。`);
+      setNewEdu("");
+      return;
+    }
+    updateRoster({ ...roster, eduTeam: [...(roster.eduTeam || []), name] });
+    setNewEdu("");
+    setMsg(`已新增教育組員「${name}」。`);
+  };
+  const deleteEdu = (name) =>
+    updateRoster({ ...roster, eduTeam: (roster.eduTeam || []).filter((m) => m.trim() !== name) });
+
   /* ---------- 屆期交接:一鍵卸任與拖曳指派 ---------- */
   const syncRosterTexts = (r) => updateRoster(r);
   const retireAll = () => {
@@ -1111,8 +1131,9 @@ function App() {
       sound: roster.sound.map(() => ""),
       ambassadors: roster.ambassadors.map(() => ""),
       committee: [],
+      eduTeam: [],
     });
-    setMsg(`已卸任所有職務,${names.length} 位回到會員名單。把會員名字拖曳到職務格即可指派下一屆。`);
+    setMsg(`已卸任所有職務,${names.length} 位回到會員名單,委員與教育組員名單已清空。把會員名字拖曳到職務格即可指派下一屆。`);
   };
   const dragName = (e) => {
     const d = e.dataTransfer.getData("text/plain");
@@ -1259,7 +1280,8 @@ function App() {
     : null;
 
   const safeLabelOf = (label) => (label || "未命名").replace(/[\\/:*?"<>|]/g, "-");
-  const downloadPng = (elId, filename) => {
+  /* a4:"landscape"|"portrait" 時,把擷取結果置中縮放貼到 A4 畫布,確保下載檔為 A4 尺寸 */
+  const downloadPng = (elId, filename, a4) => {
     const el = document.getElementById(elId);
     if (!el) return Promise.resolve();
     if (!window.html2canvas) {
@@ -1279,9 +1301,26 @@ function App() {
       .then(
         (canvas) =>
           new Promise((resolve) => {
+            let out = canvas;
+            if (a4) {
+              const sf = 2; // 與 html2canvas scale 一致
+              const aw = (a4 === "portrait" ? A4.shortSide : A4.longSide) * sf;
+              const ah = (a4 === "portrait" ? A4.longSide : A4.shortSide) * sf;
+              const target = document.createElement("canvas");
+              target.width = aw;
+              target.height = ah;
+              const ctx = target.getContext("2d");
+              ctx.fillStyle = "#ffffff";
+              ctx.fillRect(0, 0, aw, ah);
+              const s = Math.min(aw / canvas.width, ah / canvas.height);
+              const w = canvas.width * s;
+              const h = canvas.height * s;
+              ctx.drawImage(canvas, (aw - w) / 2, (ah - h) / 2, w, h);
+              out = target;
+            }
             const a = document.createElement("a");
             a.download = filename + ".png";
-            a.href = canvas.toDataURL("image/png");
+            a.href = out.toDataURL("image/png");
             a.click();
             setTimeout(resolve, 500); // 間隔一下,避免瀏覽器擋多檔連續下載
           })
@@ -1293,13 +1332,13 @@ function App() {
         el.style.transform = prevTransform;
       });
   };
-  /* 一鍵同步下載:座位圖 + 例會細節表單 + 來賓簽到表 + 來賓名牌(共 4 張) */
+  /* 一鍵同步下載:座位圖 + 例會細節表單 + 來賓簽到表 + 來賓名牌(皆為 A4) */
   const downloadMeetingSet = async () => {
     const lb = safeLabelOf(mapView && mapView.label);
-    await downloadPng("seatmap", `長城鈦金名人堂分會座位圖_${lb}`);
-    await downloadPng("meeting-detail", `長城鈦金名人堂分會例會資料_${lb}`);
-    await downloadPng("sheet-sign", `來賓簽到表_${lb}`);
-    await downloadPng("sheet-tent", `來賓名牌_${lb}`);
+    await downloadPng("seatmap", `長城鈦金名人堂分會座位圖_${lb}`, "landscape");
+    await downloadPng("meeting-detail", `長城鈦金名人堂分會例會資料_${lb}`, "landscape");
+    await downloadPng("sheet-sign", `來賓簽到表_${lb}`, "landscape");
+    await downloadPng("sheet-tent", `來賓名牌_${lb}`, "portrait");
   };
 
   /* 三張表資料來源:瀏覽儲存紀錄時用快照,否則用本週輸入 */
@@ -1560,23 +1599,41 @@ function App() {
             <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
               中央議程(題目固定,每週填入負責人)
             </div>
-            {AGENDA.map((title, i) => (
-              <div key={i} style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
-                <span style={{ fontWeight: 700, fontSize: 15, width: 130 }}>
-                  {CIRCLED[i]} {title}
-                </span>
-                <input
-                  style={{ ...inputStyle, width: 220 }}
-                  placeholder="例:鍾宇傑 劉宜賢"
-                  value={weekly.agenda[i] || ""}
-                  onChange={(e) => {
-                    const a = [...weekly.agenda];
-                    a[i] = e.target.value;
-                    upWeekly({ ...weekly, agenda: a });
-                  }}
-                />
-              </div>
-            ))}
+            {AGENDA.map((title, i) => {
+              const setAgenda = (val) => {
+                const a = [...weekly.agenda];
+                a[i] = val;
+                upWeekly({ ...weekly, agenda: a });
+              };
+              /* ① 教育培訓 → 教育組員下拉;② 總政策 → 委員下拉;其餘維持自由輸入 */
+              const dropOpts = i === 0 ? roster.eduTeam || [] : i === 1 ? roster.committee || [] : null;
+              return (
+                <div key={i} style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+                  <span style={{ fontWeight: 700, fontSize: 15, width: 130 }}>
+                    {CIRCLED[i]} {title}
+                  </span>
+                  {dropOpts ? (
+                    <select
+                      style={{ ...inputStyle, width: 220 }}
+                      value={weekly.agenda[i] || ""}
+                      onChange={(e) => setAgenda(e.target.value)}
+                    >
+                      <option value="">{i === 0 ? "選擇教育組員" : "選擇委員"}</option>
+                      {dropOpts.map((n) => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      style={{ ...inputStyle, width: 220 }}
+                      placeholder="例:鍾宇傑 劉宜賢"
+                      value={weekly.agenda[i] || ""}
+                      onChange={(e) => setAgenda(e.target.value)}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           <button style={btn(true)} onClick={() => requireAuth(generate)}>
@@ -1749,16 +1806,16 @@ function App() {
                 </div>
               )}
               {[
-                { key: "detail", title: "例會細節表單", id: "meeting-detail", file: "例會資料", body: <DetailSheet data={sheetData} /> },
-                { key: "sign", title: "來賓簽到表", id: "sheet-sign", file: "來賓簽到表", body: <GuestSignSheet data={sheetData} /> },
-                { key: "tent", title: "來賓名牌", id: "sheet-tent", file: "來賓名牌", body: <NameBadges data={sheetData} /> },
+                { key: "detail", title: "例會細節表單", id: "meeting-detail", file: "例會資料", a4: "landscape", body: <DetailSheet data={sheetData} /> },
+                { key: "sign", title: "來賓簽到表", id: "sheet-sign", file: "來賓簽到表", a4: "landscape", body: <GuestSignSheet data={sheetData} /> },
+                { key: "tent", title: "來賓名牌", id: "sheet-tent", file: "來賓名牌", a4: "portrait", body: <NameBadges data={sheetData} /> },
               ].map((s) => (
                 <div key={s.key} style={{ marginBottom: 26 }}>
                   <div className="no-print" style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
                     <span style={{ fontWeight: 800, fontSize: 16 }}>{s.title}</span>
                     <button
                       style={{ ...btn(false), padding: "6px 14px" }}
-                      onClick={() => downloadPng(s.id, `${s.file}_${safeLabelOf(sheetData.label)}`)}
+                      onClick={() => downloadPng(s.id, `${s.file}_${safeLabelOf(sheetData.label)}`, s.a4)}
                     >
                       📥 單獨下載
                     </button>
@@ -1986,6 +2043,48 @@ function App() {
                   <span style={{ fontSize: 13, color: "#7A6E5A" }}>把會員拖曳到這裡加入委員</span>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* 教育組員(僅供「教育培訓」下拉,不影響排座位) */}
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+              <span style={{ fontWeight: 800, fontSize: 16 }}>教育組員</span>
+              <span style={{ fontWeight: 400, fontSize: 13, color: "#7A6E5A" }}>
+                {(roster.eduTeam || []).length} 位——僅供「① 本週輸入」的「教育培訓」下拉,不影響排座位;一鍵卸任時一併清空
+              </span>
+              <input
+                style={{ ...inputStyle, width: 120, padding: "5px 8px", fontSize: 14 }}
+                placeholder="教育組員姓名"
+                value={newEdu}
+                onChange={(e) => setNewEdu(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addEdu();
+                }}
+              />
+              <button style={{ ...btn(false), padding: "5px 12px", fontSize: 14 }} onClick={addEdu}>
+                ＋ 新增教育組員
+              </button>
+            </div>
+            <div style={{ border: `2px dashed ${C.proxyBorder}`, background: "#F3F9EF", borderRadius: 8, padding: 8, minHeight: 48, display: "flex", flexWrap: "wrap", gap: 6, alignContent: "flex-start" }}>
+              {(roster.eduTeam || []).map((m) => (
+                <span
+                  key={m}
+                  style={{ background: C.proxy, border: `1.5px solid ${C.proxyBorder}`, borderRadius: 16, padding: "4px 10px", fontSize: 14, display: "inline-flex", gap: 5, alignItems: "center" }}
+                >
+                  {m}
+                  <button
+                    style={{ border: "none", background: "none", cursor: "pointer", fontWeight: 900, color: C.red, fontSize: 13 }}
+                    title="移除教育組員"
+                    onClick={() => deleteEdu(m)}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+              {!(roster.eduTeam || []).length && (
+                <span style={{ fontSize: 13, color: "#7A6E5A" }}>目前沒有教育組員</span>
+              )}
             </div>
           </div>
 
