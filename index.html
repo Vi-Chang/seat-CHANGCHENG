@@ -1400,7 +1400,8 @@ function App() {
 
   /* 產生來賓簡報 PPT(16:9):套用分會底板範本 guest_template.pptx,以 JSZip 填入代號並移除多餘頁,
      合併為單一檔案(15 秒簡報每位一頁 + 一頁式清單)。照片框留白,下載後自行貼上。 */
-  const GUEST_PPTX_MAX = 16;
+  const GUEST_PPTX_MAX = 32;
+  const GUEST_PPTX_PER_PAGE = 8; // 一頁式每頁來賓數
   const downloadGuestPptx = async () => {
     const guests = (sheetData.guests || []).filter((g) => g.name && g.name.trim());
     if (!guests.length) {
@@ -1452,7 +1453,8 @@ function App() {
       });
       const keepRids = new Set();
       for (let k = 1; k <= N; k++) if (ridByFile["slideG" + k + ".xml"]) keepRids.add(ridByFile["slideG" + k + ".xml"]);
-      if (ridByFile["slideOP.xml"]) keepRids.add(ridByFile["slideOP.xml"]);
+      const opPages = Math.ceil(N / GUEST_PPTX_PER_PAGE); // 一頁式依 8 位分頁,只保留有來賓的頁
+      for (let p = 1; p <= opPages; p++) if (ridByFile["slideOP" + p + ".xml"]) keepRids.add(ridByFile["slideOP" + p + ".xml"]);
       pres = pres.replace(/<p:sldId id="\d+" r:id="(rId\d+)"\/>/g, (m, rid) => (keepRids.has(rid) ? m : ""));
       zip.file("ppt/presentation.xml", pres);
       /* 輸出單一檔案 */
@@ -1463,7 +1465,7 @@ function App() {
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
       setMsg(
-        `已產生來賓簡報 PPT(16:9,套用分會底板):15 秒簡報 ${N} 頁 + 一頁式清單,合併為一個檔。照片框請下載後在 PowerPoint 自行貼上。` +
+        `已產生來賓簡報 PPT(16:9,套用分會底板):15 秒簡報 ${N} 頁 + 一頁式清單 ${opPages} 頁(每頁 ${GUEST_PPTX_PER_PAGE} 位),合併為一個檔。照片框請下載後在 PowerPoint 自行貼上。` +
           (guests.length > GUEST_PPTX_MAX ? `(來賓超過 ${GUEST_PPTX_MAX} 位,僅輸出前 ${GUEST_PPTX_MAX} 位)` : "")
       );
     } catch (e) {
