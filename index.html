@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <!-- 載入網路字型,確保座位表名字在任何電腦上都用同一套字型(避免罕用字缺字退回不同備援字型) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1398,93 +1398,76 @@ function App() {
     await downloadPng("sheet-tent", `來賓名牌_${lb}`, "portrait");
   };
 
-  /* 產生來賓簡報 PPT(16:9):①15秒簡報每位一頁含照片框 ②一頁式清單。使用 PptxGenJS */
+  /* 產生來賓簡報 PPT(16:9):套用分會底板範本 guest_template.pptx,以 JSZip 填入代號並移除多餘頁,
+     合併為單一檔案(15 秒簡報每位一頁 + 一頁式清單)。照片框留白,下載後自行貼上。 */
+  const GUEST_PPTX_MAX = 16;
   const downloadGuestPptx = async () => {
-    if (!window.PptxGenJS) {
-      setMsg("簡報元件尚未載入(可能離線),請連線後重試。");
-      return;
-    }
     const guests = (sheetData.guests || []).filter((g) => g.name && g.name.trim());
     if (!guests.length) {
       setMsg("尚未輸入來賓,無法產生來賓簡報 PPT。");
       return;
     }
-    const lb = safeLabelOf(sheetData.label);
-    const RED = "A6221A", INK = "2A2420", GREY = "7A6E5A", LINE = "C8BC9A";
-    const CH = "Microsoft JhengHei"; // 使用者 PowerPoint 內建繁中字型
-
-    /* ---- 檔一:來賓 15 秒簡報,每位一頁 ---- */
-    const p1 = new window.PptxGenJS();
-    p1.defineLayout({ name: "W16x9", width: 13.333, height: 7.5 });
-    p1.layout = "W16x9";
-    guests.forEach((g, idx) => {
-      const s = p1.addSlide();
-      s.background = { color: "FFFFFF" };
-      // 頁首
-      s.addText("參訪來賓 WELCOME VISITORS", { x: 0.6, y: 0.4, w: 9, h: 0.5, fontFace: CH, fontSize: 20, bold: true, color: RED });
-      s.addText("來賓 15 秒自我介紹", { x: 0.6, y: 0.95, w: 9, h: 0.4, fontFace: CH, fontSize: 15, color: GREY });
-      s.addText(String(idx + 1).padStart(2, "0"), { x: 11.8, y: 0.3, w: 1.1, h: 0.9, fontFace: CH, fontSize: 40, bold: true, color: LINE, align: "right" });
-      // 左:照片框(下載後自行貼上)
-      s.addShape(p1.ShapeType.rect, { x: 0.6, y: 1.7, w: 4.4, h: 3.6, line: { color: RED, width: 1.5, dashType: "dash" }, fill: { color: "F7F4EC" } });
-      s.addText("請於此貼上來賓照片\n(下載後自行貼上)", { x: 0.6, y: 1.7, w: 4.4, h: 3.6, fontFace: CH, fontSize: 16, color: GREY, align: "center", valign: "middle" });
-      // 姓名 + 類別
-      s.addText(g.name || "", { x: 0.6, y: 5.45, w: 4.4, h: 0.8, fontFace: CH, fontSize: 34, bold: true, color: INK, align: "center" });
-      if (g.category) {
-        s.addShape(p1.ShapeType.roundRect, { x: 1.7, y: 6.35, w: 2.2, h: 0.5, rectRadius: 0.1, fill: { color: RED } });
-        s.addText(g.category, { x: 1.7, y: 6.35, w: 2.2, h: 0.5, fontFace: CH, fontSize: 16, bold: true, color: "FFFFFF", align: "center", valign: "middle" });
-      }
-      // 右:欄位
-      const rows = [
-        ["公司名稱", g.company],
-        ["職務名稱", g.title || g.industry],
-        ["服務項目", g.service],
-        ["需要引薦", g.seeking],
-        ["引薦人", g.inviter],
-      ];
-      let y = 1.9;
-      rows.forEach(([label, val]) => {
-        s.addText(label, { x: 5.4, y, w: 1.8, h: 0.5, fontFace: CH, fontSize: 16, bold: true, color: RED, valign: "top" });
-        s.addText(val || "", { x: 7.2, y, w: 5.5, h: 1.0, fontFace: CH, fontSize: 16, color: INK, valign: "top" });
-        s.addShape(p1.ShapeType.line, { x: 5.4, y: y + 0.92, w: 7.3, h: 0, line: { color: LINE, width: 1 } });
-        y += 1.05;
-      });
-    });
-
-    /* ---- 檔二:來賓一頁式(商務交流時間清單) ---- */
-    const p2 = new window.PptxGenJS();
-    p2.defineLayout({ name: "W16x9b", width: 13.333, height: 7.5 });
-    p2.layout = "W16x9b";
-    const perPage = 8;
-    for (let pg = 0; pg * perPage < guests.length; pg++) {
-      const s = p2.addSlide();
-      s.background = { color: "FFFFFF" };
-      s.addText("商務交流時間 OPEN NETWORKING", { x: 0.6, y: 0.45, w: 12, h: 0.7, fontFace: CH, fontSize: 26, bold: true, color: RED });
-      s.addShape(p2.ShapeType.line, { x: 0.6, y: 1.25, w: 12.1, h: 0, line: { color: LINE, width: 1.5 } });
-      const chunk = guests.slice(pg * perPage, pg * perPage + perPage);
-      let y = 1.6;
-      chunk.forEach((g, i) => {
-        const n = pg * perPage + i + 1;
-        const role = g.title || g.industry || "";
-        s.addText(
-          [
-            { text: n + ".  ", options: { bold: true, color: RED } },
-            { text: g.name || "", options: { bold: true, color: INK } },
-            { text: role ? "  /  " + role : "", options: { color: GREY } },
-            { text: g.inviter ? "    引薦人:" + g.inviter : "", options: { color: GREY, fontSize: 16 } },
-          ],
-          { x: 0.9, y, w: 11.8, h: 0.62, fontFace: CH, fontSize: 20, valign: "middle" }
-        );
-        y += 0.68;
-      });
+    if (!window.JSZip) {
+      setMsg("簡報元件尚未載入(可能離線),請連線後重試。");
+      return;
     }
-
+    const lb = safeLabelOf(sheetData.label);
+    const N = Math.min(guests.length, GUEST_PPTX_MAX);
     try {
-      await p1.writeFile({ fileName: `長城鈦金名人堂分會_來賓15秒簡報_${lb}.pptx` });
-      await new Promise((r) => setTimeout(r, 400));
-      await p2.writeFile({ fileName: `長城鈦金名人堂分會_來賓一頁式_${lb}.pptx` });
-      setMsg(`已產生來賓簡報 PPT(16:9):15 秒簡報 ${guests.length} 頁、一頁式清單。照片框請下載後自行貼上。`);
+      const buf = await fetch("guest_template.pptx").then((r) => {
+        if (!r.ok) throw new Error("template " + r.status);
+        return r.arrayBuffer();
+      });
+      const zip = await window.JSZip.loadAsync(buf);
+      const esc = (s) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      /* 代號對應表(未使用的來賓槽填空字串) */
+      const tok = {};
+      for (let i = 1; i <= GUEST_PPTX_MAX; i++) {
+        const g = i <= N ? guests[i - 1] : null;
+        const role = g ? (g.title || g.industry || "") : "";
+        const ct = g ? ([g.company, g.title].filter((x) => x && x.trim()).join(" / ") || g.industry || "") : "";
+        tok["{{NAME" + i + "}}"] = g ? esc(g.name) : "";
+        tok["{{CT" + i + "}}"] = esc(ct);
+        tok["{{SERVICE" + i + "}}"] = g ? esc(g.service) : "";
+        tok["{{SEEKING" + i + "}}"] = g ? esc(g.seeking) : "";
+        tok["{{INVITER" + i + "}}"] = g ? esc(g.inviter) : "";
+        tok["{{L" + i + "}}"] = g
+          ? esc(i + ". " + (g.name || "") + (role ? "  /  " + role : "") + (g.inviter ? "    引薦人:" + g.inviter : ""))
+          : "";
+      }
+      /* 各投影片 XML 代號替換 */
+      const slidePaths = Object.keys(zip.files).filter((p) => /^ppt\/slides\/slide[^/]+\.xml$/.test(p));
+      for (const p of slidePaths) {
+        let x = await zip.file(p).async("string");
+        x = x.replace(/\{\{(NAME|CT|SERVICE|SEEKING|INVITER|L)\d+\}\}/g, (m) => (m in tok ? tok[m] : ""));
+        zip.file(p, x);
+      }
+      /* 移除未使用的來賓卡位(僅刪 sldIdLst 項目,最安全) */
+      let pres = await zip.file("ppt/presentation.xml").async("string");
+      const prr = await zip.file("ppt/_rels/presentation.xml.rels").async("string");
+      const ridByFile = {};
+      prr.replace(/<Relationship Id="(rId\d+)"[^>]*Target="slides\/([^"]+)"/g, (m, rid, fn) => {
+        ridByFile[fn] = rid;
+        return m;
+      });
+      const keepRids = new Set();
+      for (let k = 1; k <= N; k++) if (ridByFile["slideG" + k + ".xml"]) keepRids.add(ridByFile["slideG" + k + ".xml"]);
+      if (ridByFile["slideOP.xml"]) keepRids.add(ridByFile["slideOP.xml"]);
+      pres = pres.replace(/<p:sldId id="\d+" r:id="(rId\d+)"\/>/g, (m, rid) => (keepRids.has(rid) ? m : ""));
+      zip.file("ppt/presentation.xml", pres);
+      /* 輸出單一檔案 */
+      const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `長城鈦金名人堂分會_來賓簡報_${lb}.pptx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      setMsg(
+        `已產生來賓簡報 PPT(16:9,套用分會底板):15 秒簡報 ${N} 頁 + 一頁式清單,合併為一個檔。照片框請下載後在 PowerPoint 自行貼上。` +
+          (guests.length > GUEST_PPTX_MAX ? `(來賓超過 ${GUEST_PPTX_MAX} 位,僅輸出前 ${GUEST_PPTX_MAX} 位)` : "")
+      );
     } catch (e) {
-      setMsg("產生 PPT 時發生問題,請重試。");
+      setMsg("產生 PPT 時發生問題(可能是底板檔載入失敗),請連線後重試。");
     }
   };
 
@@ -1936,7 +1919,7 @@ function App() {
               <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", margin: "18px 0 12px", lineHeight: 1.8 }}>
                 以下表單自動帶入「① 本週輸入」的資料,並隨上方「一鍵下載」同步輸出。
                 細節表單與簽到表為 A4 橫向、名牌為 A4 直向(一頁 8 張,超過自動延伸);出席率等空白欄位留待現場手寫。
-                另可按「📽 下載來賓簡報 PPT(16:9)」產出兩個 PowerPoint 檔:來賓 15 秒簡報(每位一頁,含照片框,下載後自行貼上照片)與來賓一頁式清單。
+                另可按「📽 下載來賓簡報 PPT(16:9)」,套用分會底板產出單一 PowerPoint 檔:來賓 15 秒簡報(每位一頁,含照片框,下載後在 PowerPoint 自行貼上照片)+ 來賓一頁式清單。
               </div>
               {sheetData.guests.length === 0 && (
                 <div className="no-print" style={{ background: C.amber, border: "1.5px solid #D9A93F", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14 }}>
