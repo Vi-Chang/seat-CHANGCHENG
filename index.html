@@ -512,6 +512,70 @@ function NameBadges({ data }) {
   );
 }
 
+/* ---------------- 來賓簡報預覽(貼近分會底板的 HTML 呈現;實際下載檔為套用官方範本的 .pptx) ---------------- */
+const PVR = "#A6221A", PVINK = "#2A2420", PVGREY = "#7A6E5A";
+const PV_TAGS = ["金融投資", "品牌推廣", "商業服務", "醫療健康", "食品餐飲", "時尚生活", "商品規劃包裝"];
+const PvHeader = ({ title, sub, num }) => (
+  <>
+    <div style={{ position: "absolute", left: 20, top: 16, width: 560, height: 68, background: PVR, transform: "skewX(-12deg)", boxShadow: "7px 7px 0 rgba(0,0,0,.12)" }} />
+    <div style={{ position: "absolute", left: 58, top: 22, color: "#fff" }}>
+      <div style={{ fontSize: 33, fontWeight: 800, letterSpacing: 2, lineHeight: 1.1 }}>{title}</div>
+      <div style={{ fontSize: 13, letterSpacing: 1 }}>{sub}</div>
+    </div>
+    <div style={{ position: "absolute", right: 26, top: 12, width: 64, height: 64, borderRadius: "50%", background: PVR, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 25, fontWeight: 800 }}>
+      {String(num).padStart(2, "0")}
+    </div>
+  </>
+);
+const PvFooter = () => (
+  <>
+    <img src="bni.png" alt="BNI" style={{ position: "absolute", left: 18, bottom: 18, height: 24 }} />
+    <img src="accelerate.png" alt="ACCELERATE" style={{ position: "absolute", left: 62, bottom: 12, height: 34 }} />
+    <img src="curve.png" alt="" style={{ position: "absolute", right: 0, bottom: 0, width: 210 }} />
+  </>
+);
+function GuestSlidePreview({ g, num, photo }) {
+  const ct = [g.company, g.title].filter((x) => x && x.trim()).join(" / ") || g.industry || "";
+  const rows = [["公司名稱\n職務名稱", ct], ["服務項目", g.service || ""], ["需要引薦", g.seeking || ""], ["引薦人", g.inviter || ""]];
+  return (
+    <div style={{ position: "relative", width: 800, height: 450, background: "#fff", fontFamily: KAI, overflow: "hidden", flex: "none", border: "1px solid #ddd" }}>
+      <PvHeader title="來賓15秒自我介紹" sub="WELCOME VISITORS" num={num} />
+      <div style={{ position: "absolute", left: 40, top: 108, width: 158, height: 210, borderRadius: 6, overflow: "hidden", border: `2px ${photo ? "solid" : "dashed"} ${PVR}`, background: "#F5F5F5", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {photo ? <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div style={{ color: PVGREY, fontSize: 13, textAlign: "center", padding: 6, lineHeight: 1.5 }}>未上傳照片<br />(下載後可自貼)</div>}
+      </div>
+      <div style={{ position: "absolute", left: 40, top: 330, width: 158, textAlign: "center", background: PVR, color: "#fff", fontSize: 26, fontWeight: 800, padding: "5px 0", borderRadius: 4, letterSpacing: 3, whiteSpace: "nowrap", overflow: "hidden" }}>{g.name || ""}</div>
+      <div style={{ position: "absolute", left: 220, top: 102, right: 26 }}>
+        {rows.map(([label, val], i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ width: 116, height: 46, background: PVR, color: "#fff", fontWeight: 800, fontSize: 15, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", whiteSpace: "pre-line", textAlign: "center", flex: "none", lineHeight: 1.15 }}>{label}</div>
+            <div style={{ marginLeft: 14, fontSize: 17, color: PVINK, fontWeight: 600, lineHeight: 1.3, overflow: "hidden" }}>{val}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ position: "absolute", left: 150, bottom: 24, display: "flex", gap: 4 }}>
+        {PV_TAGS.map((t) => (
+          <div key={t} style={{ background: "#D9D9D9", color: "#8a8a8a", fontSize: 11, padding: "4px 6px", borderRadius: 3 }}>{t}</div>
+        ))}
+        <div style={{ background: "#2E9E4F", color: "#fff", fontSize: 11, padding: "4px 7px", borderRadius: 3, fontWeight: 700 }}>參訪來賓</div>
+      </div>
+      <PvFooter />
+    </div>
+  );
+}
+function OnePagePreview({ items, num }) {
+  return (
+    <div style={{ position: "relative", width: 800, height: 450, background: "#fff", fontFamily: KAI, overflow: "hidden", flex: "none", border: "1px solid #ddd" }}>
+      <PvHeader title="商務交流時間" sub="OPEN NETWORKING" num={num} />
+      <div style={{ position: "absolute", left: 60, top: 120, right: 40 }}>
+        {items.map((it, i) => (
+          <div key={i} style={{ fontSize: 22, fontWeight: 700, color: PVINK, marginBottom: 13, lineHeight: 1.3 }}>{it}</div>
+        ))}
+      </div>
+      <PvFooter />
+    </div>
+  );
+}
+
 const keyOf = (z, t, s) => `${z}.${t}.${s}`;
 const parseKey = (k) => {
   const [z, t, s] = k.split(".");
@@ -533,6 +597,7 @@ function App() {
   const [confirmDlg, setConfirmDlg] = useState(null); // {message, onConfirm}
   const askConfirm = (message, onConfirm) => setConfirmDlg({ message, onConfirm });
   const [photos, setPhotos] = useState({}); // { pid: jpeg dataURL } 來賓照片(暫存,每週三 12:00 清除)
+  const [showPptPreview, setShowPptPreview] = useState(false); // 來賓簡報預覽開關
 
   /* 座位圖縮放:電腦版整張不超出畫面寬度(下載時仍以原始尺寸輸出) */
   const mapWrapRef = useRef(null);
@@ -1950,7 +2015,44 @@ function App() {
                 )}
                 <button style={btn(true)} onClick={downloadMeetingSet}>📥 一鍵下載(座位圖+例會資料+簽到表+名牌)</button>
                 <button style={btn(false)} onClick={downloadGuestPptx}>📽 下載來賓簡報 PPT(16:9)</button>
+                <button style={btn(false)} onClick={() => setShowPptPreview((v) => !v)}>
+                  {showPptPreview ? "🙈 隱藏簡報預覽" : "👁 預覽來賓簡報"}
+                </button>
               </div>
+
+              {/* 來賓簡報預覽(貼近底板;實際下載為官方範本 .pptx) */}
+              {showPptPreview && (
+                <div className="no-print" style={{ marginBottom: 14, background: "#EDE8DB", border: `1.5px solid ${C.seatBorder}`, borderRadius: 8, padding: "12px 14px" }}>
+                  {(() => {
+                    const gs = (sheetData.guests || []).filter((g) => g.name && g.name.trim()).slice(0, GUEST_PPTX_MAX);
+                    if (!gs.length)
+                      return <div style={{ fontSize: 14, color: "#7A6E5A" }}>尚未輸入來賓,無可預覽的簡報。請先到「① 本週輸入」貼上來賓資料。</div>;
+                    const pages = [];
+                    for (let i = 0; i < gs.length; i += GUEST_PPTX_PER_PAGE) pages.push(gs.slice(i, i + GUEST_PPTX_PER_PAGE));
+                    const role = (g) => g.title || g.industry || "";
+                    return (
+                      <>
+                        <div style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 10, lineHeight: 1.8 }}>
+                          來賓簡報預覽(共 {gs.length} 位 + 一頁式 {pages.length} 頁)。此為貼近底板的畫面預覽,實際下載檔為套用官方分會底板的 PowerPoint;照片為已上傳者,未上傳則留白框。
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "flex-start", maxWidth: "100%", overflowX: "auto" }}>
+                          {gs.map((g, i) => (
+                            <GuestSlidePreview key={"g" + i} g={g} num={i + 1} photo={g.pid ? photos[g.pid] : ""} />
+                          ))}
+                          {pages.map((chunk, p) => (
+                            <OnePagePreview
+                              key={"op" + p}
+                              num={p + 1}
+                              items={chunk.map((g, j) => `${p * GUEST_PPTX_PER_PAGE + j + 1}. ${g.name || ""}${role(g) ? "  /  " + role(g) : ""}${g.inviter ? "    引薦人:" + g.inviter : ""}`)}
+                            />
+                          ))}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
               <div className="no-print" style={{ marginBottom: 8 }}>{legend}</div>
               {!viewing && (
                 <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 12 }}>
