@@ -131,14 +131,54 @@ const emptyWeekly = () => ({
   visitors: 0, // 分會參訪人數(不記名,座位標示「參訪」)
 });
 
-/* 最近一次「已過去」的週三 10:00(裝置本地時間);例會結束後本週表單自動恢復空白 */
-const lastResetTime = () => {
+/* 最近一次「已過去」的週三 HH:00(裝置本地時間) */
+const lastWedTime = (hour) => {
   const d = new Date();
-  d.setHours(10, 0, 0, 0);
+  d.setHours(hour, 0, 0, 0);
   while (d.getDay() !== 3) d.setDate(d.getDate() - 1);
   if (d.getTime() > Date.now()) d.setDate(d.getDate() - 7);
   return d.getTime();
 };
+const lastResetTime = () => lastWedTime(10); // 例會結束後本週表單自動恢復空白(週三 10:00)
+const lastPhotoResetTime = () => lastWedTime(12); // 來賓照片每週三中午 12:00 自動刪除
+
+/* 來賓照片裁切+壓縮成範本照片框比例(直式),回傳 JPEG dataURL,以節省暫存空間 */
+const PHOTO_RATIO = 2101540 / 3312245; // 範本照片框 寬/高 ≈ 0.634(直式)
+const processGuestPhoto = (file) =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const targetH = 760;
+      const targetW = Math.round(targetH * PHOTO_RATIO);
+      const canvas = document.createElement("canvas");
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext("2d");
+      const ir = img.width / img.height;
+      const tr = targetW / targetH;
+      let sw, sh, sx, sy;
+      if (ir > tr) {
+        sh = img.height;
+        sw = sh * tr;
+        sx = (img.width - sw) / 2;
+        sy = 0;
+      } else {
+        sw = img.width;
+        sh = sw / tr;
+        sx = 0;
+        sy = (img.height - sh) / 2;
+      }
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH);
+      resolve(canvas.toDataURL("image/jpeg", 0.82));
+    };
+    img.onerror = reject;
+    const fr = new FileReader();
+    fr.onload = () => {
+      img.src = fr.result;
+    };
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
 
 const buildPairs = (groups) => {
   const s = new Set();
@@ -492,6 +532,7 @@ function App() {
   const [viewing, setViewing] = useState(null);
   const [confirmDlg, setConfirmDlg] = useState(null); // {message, onConfirm}
   const askConfirm = (message, onConfirm) => setConfirmDlg({ message, onConfirm });
+  const [photos, setPhotos] = useState({}); // { pid: jpeg dataURL } 來賓照片(暫存,每週三 12:00 清除)
 
   /* 座位圖縮放:電腦版整張不超出畫面寬度(下載時仍以原始尺寸輸出) */
   const mapWrapRef = useRef(null);
@@ -604,12 +645,25 @@ function App() {
                 service: g.service || "",
                 seeking: g.seeking || "",
                 category: g.category || "",
+                pid: g.pid || "",
               };
               ng.raw = g.raw || composeGuestBlock(ng); // 舊資料自動組成可編輯的貼上文字
               return ng;
             });
             parsed.visitors = Math.max(0, parseInt(parsed.visitors, 10) || 0);
             setWeekly(parsed);
+          }
+        }
+      } catch (e) {}
+      try {
+        const ph = await window.storage.get("gw-photos");
+        if (ph) {
+          const parsed = JSON.parse(ph.value);
+          /* 來賓照片每週三 12:00 後自動刪除 */
+          if (parsed && parsed.savedAt && parsed.savedAt >= lastPhotoResetTime() && parsed.map) {
+            setPhotos(parsed.map);
+          } else {
+            window.storage.delete("gw-photos").catch(() => {});
           }
         }
       } catch (e) {}
@@ -1274,6 +1328,38 @@ function App() {
     setWeekly(w);
     persist("gw-weekly", { ...w, savedAt: Date.now() });
   };
+
+  /* 來賓照片:存於獨立 gw-photos(壓縮後),每週三 12:00 自動刪除 */
+  const savePhotos = (map) => {
+    setPhotos(map);
+    try {
+      window.storage.set("gw-photos", JSON.stringify({ savedAt: Date.now(), map })).catch(() => {});
+    } catch (e) {}
+  };
+  const setGuestPhoto = async (i, file) => {
+    if (!file) return;
+    try {
+      const dataUrl = await processGuestPhoto(file);
+      const gs = [...weekly.guests];
+      let pid = gs[i].pid;
+      if (!pid) {
+        pid = "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+        gs[i] = { ...gs[i], pid };
+        upWeekly({ ...weekly, guests: gs });
+      }
+      savePhotos({ ...photos, [pid]: dataUrl });
+      setMsg("已上傳來賓照片(暫存,每週三中午 12:00 自動刪除)。產生來賓簡報 PPT 時會套用到該來賓的 15 秒簡報。");
+    } catch (e) {
+      setMsg("照片處理失敗,請換一張圖片再試。");
+    }
+  };
+  const removeGuestPhoto = (i) => {
+    const pid = weekly.guests[i] && weekly.guests[i].pid;
+    if (!pid) return;
+    const m = { ...photos };
+    delete m[pid];
+    savePhotos(m);
+  };
   /* 選單名單 = 會員 ∪ 委員,扣除固定席 */
   const fixedNames = new Set(
     [
@@ -1443,6 +1529,35 @@ function App() {
         x = x.replace(/\{\{(NAME|CT|SERVICE|SEEKING|INVITER|L)\d+\}\}/g, (m) => (m in tok ? tok[m] : ""));
         zip.file(p, x);
       }
+      /* 嵌入來賓照片:有上傳者,把該卡位的照片框換成圖片(注入 media + rels) */
+      let photoCount = 0;
+      for (let k = 1; k <= N; k++) {
+        const g = guests[k - 1];
+        const dataUrl = g.pid && photos[g.pid];
+        const mm = dataUrl && /^data:image\/(png|jpe?g);base64,(.+)$/i.exec(dataUrl);
+        if (!mm) continue;
+        const ext = mm[1].toLowerCase() === "png" ? "png" : "jpeg";
+        zip.file("ppt/media/gphoto" + k + "." + ext, mm[2], { base64: true });
+        const relsPath = "ppt/slides/_rels/slideG" + k + ".xml.rels";
+        let rels = await zip.file(relsPath).async("string");
+        rels = rels.replace(
+          "</Relationships>",
+          '<Relationship Id="rIdPhoto" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/gphoto' +
+            k + "." + ext + '"/></Relationships>'
+        );
+        zip.file(relsPath, rels);
+        const slidePath = "ppt/slides/slideG" + k + ".xml";
+        let sx = await zip.file(slidePath).async("string");
+        const pic =
+          '<p:pic><p:nvPicPr><p:cNvPr id="' + (950 + k) + '" name="GuestPhoto"/>' +
+          '<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>' +
+          '<p:blipFill><a:blip r:embed="rIdPhoto"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>' +
+          '<p:spPr><a:xfrm><a:off x="936972" y="1585307"/><a:ext cx="2101540" cy="3312245"/></a:xfrm>' +
+          '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>';
+        sx = sx.replace(/<p:sp>(?:(?!<\/p:sp>)[\s\S])*?name="PhotoBox"[\s\S]*?<\/p:sp>/, pic);
+        zip.file(slidePath, sx);
+        photoCount++;
+      }
       /* 移除未使用的來賓卡位(僅刪 sldIdLst 項目,最安全) */
       let pres = await zip.file("ppt/presentation.xml").async("string");
       const prr = await zip.file("ppt/_rels/presentation.xml.rels").async("string");
@@ -1465,7 +1580,7 @@ function App() {
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
       setMsg(
-        `已產生來賓簡報 PPT(16:9,套用分會底板):15 秒簡報 ${N} 頁 + 一頁式清單 ${opPages} 頁(每頁 ${GUEST_PPTX_PER_PAGE} 位),合併為一個檔。照片框請下載後在 PowerPoint 自行貼上。` +
+        `已產生來賓簡報 PPT(16:9,套用分會底板):15 秒簡報 ${N} 頁 + 一頁式清單 ${opPages} 頁(每頁 ${GUEST_PPTX_PER_PAGE} 位),合併為一個檔。已套用 ${photoCount} 張來賓照片;未上傳照片者維持空白照片框。` +
           (guests.length > GUEST_PPTX_MAX ? `(來賓超過 ${GUEST_PPTX_MAX} 位,僅輸出前 ${GUEST_PPTX_MAX} 位)` : "")
       );
     } catch (e) {
@@ -1579,6 +1694,45 @@ function App() {
                         (g.service ? `・${g.service}` : "")
                       : "貼上後這裡會顯示解析出的姓名/類別/邀約人等,方便核對。"}
                   </div>
+                  {/* 來賓照片上傳(套用到 15 秒簡報;暫存,每週三 12:00 自動刪除) */}
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12.5, color: "#7A6E5A" }}>照片:</span>
+                    {g.pid && photos[g.pid] ? (
+                      <>
+                        <img
+                          src={photos[g.pid]}
+                          alt="來賓照片"
+                          style={{ width: 44, height: 58, objectFit: "cover", borderRadius: 4, border: `1.5px solid ${C.guestBorder}` }}
+                        />
+                        <label style={{ ...btn(false), padding: "5px 12px", fontSize: 13, cursor: "pointer" }}>
+                          更換
+                          <input
+                            type="file"
+                            accept="image/*"
+                            style={{ display: "none" }}
+                            onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; setGuestPhoto(i, f); }}
+                          />
+                        </label>
+                        <button
+                          style={{ ...btn(false), padding: "5px 12px", fontSize: 13, color: C.red, borderColor: C.red }}
+                          onClick={() => removeGuestPhoto(i)}
+                        >
+                          移除
+                        </button>
+                      </>
+                    ) : (
+                      <label style={{ ...btn(false), padding: "5px 12px", fontSize: 13, cursor: "pointer" }}>
+                        ＋ 上傳照片
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: "none" }}
+                          onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; setGuestPhoto(i, f); }}
+                        />
+                      </label>
+                    )}
+                    <span style={{ fontSize: 12, color: "#7A6E5A" }}>套用至 15 秒簡報;暫存,每週三中午 12:00 自動刪除</span>
+                  </div>
                   {/* 座位指派(委員/小天使),簡報用不到 */}
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
                     <span style={{ fontSize: 12.5, color: "#7A6E5A" }}>座位:</span>
@@ -1611,7 +1765,7 @@ function App() {
               onClick={() =>
                 upWeekly({
                   ...weekly,
-                  guests: [...weekly.guests, { name: "", industry: "", phone: "", email: "", inviter: "", committee: "", angel: "", company: "", title: "", service: "", seeking: "", category: "", raw: "" }],
+                  guests: [...weekly.guests, { name: "", industry: "", phone: "", email: "", inviter: "", committee: "", angel: "", company: "", title: "", service: "", seeking: "", category: "", raw: "", pid: "" }],
                 })
               }
             >
