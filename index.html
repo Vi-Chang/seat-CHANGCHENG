@@ -329,6 +329,7 @@ const inputStyle = {
 
 /* ---------------- 例會三張表(細節表單/來賓簽到/來賓名牌) ---------------- */
 const KAI = '"DFKai-SB","BiauKai","Kaiti TC","KaiTi","Noto Serif TC",serif';
+const HEI = '"Microsoft JhengHei","微軟正黑體","PingFang TC","Heiti TC","Noto Sans TC",sans-serif';
 /* A4 @96dpi:直向 794×1123、橫向 1123×794 */
 const A4 = { longSide: 1123, shortSide: 794 };
 const fmtMinguo = (label) => {
@@ -564,11 +565,11 @@ function GuestSlidePreview({ g, num, photo }) {
 }
 function OnePagePreview({ items, num }) {
   return (
-    <div style={{ position: "relative", width: 800, height: 450, background: "#fff", fontFamily: KAI, overflow: "hidden", flex: "none", border: "1px solid #ddd" }}>
+    <div style={{ position: "relative", width: 800, height: 450, background: "#fff", fontFamily: HEI, overflow: "hidden", flex: "none", border: "1px solid #ddd" }}>
       <PvHeader title="商務交流時間" sub="OPEN NETWORKING" num={num} />
-      <div style={{ position: "absolute", left: 60, top: 120, right: 40 }}>
+      <div style={{ position: "absolute", left: 64, top: 115, width: 671, height: 308, display: "flex", flexDirection: "column", justifyContent: "center" }}>
         {items.map((it, i) => (
-          <div key={i} style={{ fontSize: 22, fontWeight: 700, color: PVINK, marginBottom: 13, lineHeight: 1.3 }}>{it}</div>
+          <div key={i} style={{ fontSize: 27, fontWeight: 700, color: PVINK, lineHeight: 1.3 }}>{it}</div>
         ))}
       </div>
       <PvFooter />
@@ -1592,6 +1593,10 @@ function App() {
       for (const p of slidePaths) {
         let x = await zip.file(p).async("string");
         x = x.replace(/\{\{(NAME|CT|SERVICE|SEEKING|INVITER|L)\d+\}\}/g, (m) => (m in tok ? tok[m] : ""));
+        /* 一頁式清單:移除未使用的空白行,使剩餘來賓能置中對齊 */
+        if (/slideOP\d+\.xml$/.test(p)) {
+          x = x.replace(/<a:p>(?:(?!<\/a:p>)[\s\S])*?<a:t><\/a:t><\/a:r><\/a:p>/g, "");
+        }
         zip.file(p, x);
       }
       /* 嵌入來賓照片:有上傳者,把該卡位的照片框換成圖片(注入 media + rels) */
