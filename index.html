@@ -827,8 +827,8 @@ function App() {
           else {
             const sub = autoAngel();
             if (sub) {
-              cSeat = { name: sub, kind: "angel" };
-              warnings.push(`委員人數不足,來賓 ${gName} 的委員側由小天使「${sub}」補位`);
+              cSeat = { name: sub, kind: "member" };
+              warnings.push(`委員人數不足,來賓 ${gName} 的委員側隨機由會員「${sub}」遞補`);
             } else {
               cSeat = { name: "(空位)", kind: "committee" };
               warnings.push(`來賓 ${gName} 的委員側無人可派`);
