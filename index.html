@@ -959,7 +959,7 @@ function App() {
     if (memberTables.some((t) => t.seats.length === 1))
       warnings.push("仍有 1 人落單(總人數過少),請手動調整");
 
-    /* 分配:所有例會都優先排滿正面底排 3 排(6 桌/18 席)，超出後才延伸左右直排；
+    /* 分配:所有例會都優先排滿正面底排 6 桌/18 席(每排 2 或 3 桌)，超出後才延伸左右直排；
        左右四欄平均分配，讓左、右、正面三個方位的現場視覺盡量平衡(BOD 只改上排職務)
        來賓桌依「視野順序」優先安排:
        ① 底排內圈(正對舞台,視野最佳)② 內圈左右直排(由後往舞台方向)
@@ -1015,12 +1015,14 @@ function App() {
     for (let i = 0; i < P; i++) slots.RO[per[3] - P + i] = proxyTables[i];
 
     const viewOrder = [];
-    for (let i = 0; i < Math.min(2, bottomCount); i++) viewOrder.push(["bottom", i]);
+    /* 底排會依桌數採每排 2 或 3 桌；第一排位置優先提供來賓桌 */
+    const bottomFirstRow = bottomCount >= 5 || bottomCount === 3 ? 3 : Math.min(2, bottomCount);
+    for (let i = 0; i < bottomFirstRow; i++) viewOrder.push(["bottom", i]);
     for (let i = Math.max(per[1], per[2]) - 1; i >= 0; i--) {
       if (i < per[1]) viewOrder.push(["LI", i]);
       if (i < per[2]) viewOrder.push(["RI", i]);
     }
-    for (let i = 2; i < bottomCount; i++) viewOrder.push(["bottom", i]);
+    for (let i = bottomFirstRow; i < bottomCount; i++) viewOrder.push(["bottom", i]);
     const roFree = per[3] - P;
     for (let i = Math.max(per[0], roFree) - 1; i >= 0; i--) {
       if (i < per[0]) viewOrder.push(["LO", i]);
@@ -1115,7 +1117,7 @@ function App() {
         guests: lockedTables.length,
         absentNoProxy: weekly.absent.length,
         visitors: visitorCount,
-        bottomRows: Math.max(1, Math.ceil(slots.bottom.length / 2)),
+        bottomRows: Math.max(1, Math.ceil(slots.bottom.length / (slots.bottom.length >= 5 || slots.bottom.length === 3 ? 3 : 2))),
       },
     });
     persist("gw-weekly", { ...weekly, savedAt: Date.now() });
@@ -1512,8 +1514,9 @@ function App() {
   );
 
   const bottomRowsOf = (tables) => {
+    const perRow = tables.length >= 5 || tables.length === 3 ? 3 : 2;
     const rows = [];
-    for (let i = 0; i < tables.length; i += 2) rows.push(tables.slice(i, i + 2));
+    for (let i = 0; i < tables.length; i += perRow) rows.push(tables.slice(i, i + perRow));
     return rows.length ? rows : [[]];
   };
 
@@ -2106,7 +2109,7 @@ function App() {
               <div className="no-print" style={{ marginBottom: 8 }}>{legend}</div>
               {!viewing && (
                 <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 12 }}>
-                  正面底排優先排滿 18 席(本週:{result.stats.bottomRows} 排)，再延伸左右兩側；左右桌數盡量平均。來賓桌視野優先:底排內圈 → 內圈直排 → 底排第二排 → 外圈。
+                  正面底排優先排滿 18 席(每排 2 或 3 桌，本週:{result.stats.bottomRows} 排)，再延伸左右兩側；左右桌數盡量平均。來賓桌視野優先:底排內圈 → 內圈直排 → 底排第二排 → 外圈。
                   來賓兩側為委員與小天使,委員在離螢幕較遠側(直排=下方座位)。
                   新人-導師固定同桌。點選或拖曳名字可交換;大使席固定。存檔以畫面目前位置為準。
                 </div>
