@@ -50,7 +50,7 @@ const DEFAULT_ROSTER = {
     "魏軒壽","王文正","邱彥傑","陳師平","朱苡菱","蔡瑋竑","江品萱","玲唯齊",
     "郭亭君","李鴻毅","鄭淑宜","蔡佩玲","翁啟信",
     "王彥萍","鄭建通","鍾宇傑","周珈汶","張煥晨","劉宜賢",
-    "張維麟","曾智源","關崇益","黃致榮","謝宗杰","呂秉軒","陳麗惠","趙一蒨","于美云",
+    "曾智源","關崇益","黃致榮","謝宗杰","呂秉軒","陳麗惠","趙一蒨","于美云",
     "張力文","陳秋榮","林宗儒","石沛晴","趙祥吉",
   ],
 };
@@ -685,8 +685,12 @@ function App() {
           if (!Array.isArray(parsed.sound)) parsed.sound = [...DEFAULT_ROSTER.sound];
           while (parsed.sound.length < 3) parsed.sound.push(""); // 電音固定 3 格(可留空)
           const cSet = new Set(parsed.committee.map((s) => (s || "").trim()));
-          parsed.members = (parsed.members || []).filter((m) => !cSet.has((m || "").trim())); // 委員為獨立名單
+          parsed.members = (parsed.members || []).filter((m) => {
+            const name = (m || "").trim();
+            return name !== "張維麟" && !cSet.has(name);
+          }); // 移除已退會會員；委員為獨立名單
           setRoster(parsed);
+          window.storage.set("gw-roster", JSON.stringify(parsed)).catch(() => {});
         }
       } catch (e) {}
       try {
