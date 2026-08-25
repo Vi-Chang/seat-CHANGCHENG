@@ -124,12 +124,28 @@ const minguoToday = () => {
 };
 const emptyWeekly = () => ({
   label: minguoToday(),
+  isBod: false, // BOD 擴大商機日：上排改為秘財、大使、董顧、主席、副主席
   guests: [], // {name, industry, phone, email, inviter, committee, angel}
   proxies: [], // 由代理出席的「會員」名字
   absent: [],
   agenda: ["", "", "", "", "", "", ""],
   visitors: 0, // 分會參訪人數(不記名,座位標示「參訪」)
 });
+
+const chairRowForWeek = (roster, isBod) => {
+  if (!isBod) return roster.chairRow.map((c) => ({ ...c }));
+  const chairName = (role) => {
+    const item = roster.chairRow.find((c) => c.role === role);
+    return item ? item.name : "";
+  };
+  return [
+    { role: "秘財", name: chairName("秘書財務") },
+    { role: "大使", name: roster.ambassadors[0] || "" },
+    { role: "董顧", name: roster.ambassadors[1] || "" },
+    { role: "主席", name: chairName("主席") },
+    { role: "副主席", name: chairName("副主席") },
+  ];
+};
 
 /* 最近一次「已過去」的週三 HH:00(裝置本地時間) */
 const lastWedTime = (hour) => {
@@ -751,17 +767,22 @@ function App() {
   /* ---------- 產生座位 ---------- */
   const generate = () => {
     const warnings = [];
+    const activeChairRow = chairRowForWeek(roster, weekly.isBod);
+    const activeChairNames = new Set(activeChairRow.map((c) => c.name.trim()).filter(Boolean));
+    const inactiveChairNames = weekly.isBod
+      ? roster.chairRow.map((c) => c.name.trim()).filter((n) => n && !activeChairNames.has(n))
+      : [];
     /* 輪換名單 = 會員 ∪ 委員(委員為獨立名單),扣除固定席(主席排/電音/大使) */
     const committeeAll = (roster.committee || []).map((s) => s.trim()).filter(Boolean);
     const fixedNames = new Set(
       [
-        ...roster.chairRow.map((c) => c.name.trim()),
+        ...activeChairRow.map((c) => c.name.trim()),
         ...roster.sound.map((s) => (s || "").trim()),
-        ...roster.ambassadors.map((a) => (a || "").trim()),
+        ...(!weekly.isBod ? roster.ambassadors.map((a) => (a || "").trim()) : []),
       ].filter(Boolean)
     );
     const members = [
-      ...new Set([...roster.members.map((s) => s.trim()).filter(Boolean), ...committeeAll]),
+      ...new Set([...roster.members.map((s) => s.trim()).filter(Boolean), ...committeeAll, ...inactiveChairNames]),
     ].filter((n) => !fixedNames.has(n));
     const memberSet = new Set(members);
     const absent = new Set(weekly.absent);
@@ -869,7 +890,7 @@ function App() {
       return i >= 0 ? pool.splice(i, 1)[0] : null;
     };
 
-    /* 大使桌:大使+董顧固定同桌不拆開,第三個位子開放給會員 */
+    /* 一般例會的大使桌；BOD 時大使與董顧移至上排，不建立此桌 */
     const ambTable = {
       seats: [
         { name: roster.ambassadors[0] || "大使", kind: "amb" },
@@ -877,8 +898,10 @@ function App() {
       ],
       type: "amb",
     };
-    const ambExtra = takeUnbonded();
-    if (ambExtra) ambTable.seats.push({ name: ambExtra, kind: "member" });
+    if (!weekly.isBod) {
+      const ambExtra = takeUnbonded();
+      if (ambExtra) ambTable.seats.push({ name: ambExtra, kind: "member" });
+    }
 
     /* 代理人桌(綠色=由代理出席的會員名字,固定右側外圍) */
     const proxyTables = [];
@@ -1022,7 +1045,7 @@ function App() {
       while (t.seats.length < 3) t.seats.push({ name: "", kind: "empty" });
     };
     ["LO", "LI", "RI", "RO", "bottom"].forEach((z) => slots[z].forEach(padTable));
-    padTable(ambTable);
+    if (!weekly.isBod) padTable(ambTable);
 
     /* 空位桌一律移至口字最靠底部的角落:左外側最下,其次右外側最下(代理桌之上) */
     const hasEmpty = (t) => t.type === "member" && t.seats.some((s) => s.kind === "empty");
@@ -1074,12 +1097,12 @@ function App() {
     }
 
     const fixedCount =
-      roster.chairRow.filter((c) => c.name.trim()).length +
+      activeChairRow.filter((c) => c.name.trim()).length +
       roster.sound.filter(Boolean).length +
-      roster.ambassadors.filter((a) => a.trim()).length;
+      (!weekly.isBod ? roster.ambassadors.filter((a) => a.trim()).length : 0);
 
     setResult({
-      zones: { LO: slots.LO, LI: slots.LI, RI: slots.RI, RO: slots.RO, bottom: slots.bottom, amb: [ambTable] },
+      zones: { LO: slots.LO, LI: slots.LI, RI: slots.RI, RO: slots.RO, bottom: slots.bottom, amb: weekly.isBod ? [] : [ambTable] },
       warnings,
       stats: {
         totalMembers: members.length + fixedCount,
@@ -1230,12 +1253,14 @@ function App() {
     const rec = {
       id: Date.now(),
       label: weekly.label,
+      isBod: !!weekly.isBod,
       zones: JSON.parse(JSON.stringify(z)),
       agenda: [...weekly.agenda],
       stats: result.stats,
-      chairRow: roster.chairRow.map((c) => ({ ...c })),
+      chairRow: chairRowForWeek(roster, weekly.isBod),
       sound: [...roster.sound],
       week: {
+        isBod: !!weekly.isBod,
         guests: weekly.guests.filter((g) => g.name && g.name.trim()).map((g) => ({ ...g })),
         proxies: [...weekly.proxies],
         absent: [...weekly.absent],
@@ -1492,7 +1517,7 @@ function App() {
   const mapView = viewing
     ? viewing
     : result
-    ? { label: weekly.label, zones: result.zones, agenda: weekly.agenda, stats: result.stats, chairRow: roster.chairRow, sound: roster.sound }
+    ? { label: weekly.label, isBod: !!weekly.isBod, zones: result.zones, agenda: weekly.agenda, stats: result.stats, chairRow: chairRowForWeek(roster, weekly.isBod), sound: roster.sound }
     : null;
 
   const safeLabelOf = (label) => (label || "未命名").replace(/[\\/:*?"<>|]/g, "-");
@@ -1723,6 +1748,20 @@ function App() {
                 onChange={(e) => upWeekly({ ...weekly, label: e.target.value })}
               />
             </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 12, cursor: "pointer", width: "fit-content", background: weekly.isBod ? "#FBE9E7" : "#fff", border: `1.5px solid ${weekly.isBod ? C.red : C.seatBorder}`, borderRadius: 8, padding: "9px 13px", fontWeight: 800 }}>
+              <input
+                type="checkbox"
+                checked={!!weekly.isBod}
+                onChange={(e) => upWeekly({ ...weekly, isBod: e.target.checked })}
+                style={{ width: 18, height: 18 }}
+              />
+              本週為 BOD 擴大商機日
+            </label>
+            {weekly.isBod && (
+              <div style={{ color: C.red, fontSize: 13, marginTop: 6 }}>
+                上排將改為：秘財・大使・董顧・主席・副主席
+              </div>
+            )}
           </div>
 
           {/* 來賓 */}
@@ -2123,6 +2162,9 @@ function App() {
                       </div>
                       <div style={{ marginTop: 18, textAlign: "center", fontWeight: 800, fontSize: 17 }}>
                         長城鈦金名人堂分會 {mapView.label} 例會
+                        {mapView.isBod && (
+                          <div style={{ color: C.red, fontSize: 16, marginTop: 3 }}>BOD 擴大商機日</div>
+                        )}
                         <div style={{ fontSize: 15, marginTop: 4 }}>
                           會員:{mapView.stats.totalMembers}人 來賓:{mapView.stats.guests}位
                         </div>
@@ -2146,20 +2188,22 @@ function App() {
                     </div>
                   </div>
 
-                  {/* 底排;大使董顧桌斜放左下角,不在口字範圍內 */}
+                  {/* 底排;一般例會的大使董顧桌斜放左下角,BOD 時兩人移至上排 */}
                   <div style={{ display: "flex", justifyContent: "center", gap: 26, marginTop: 26, alignItems: "flex-start" }}>
-                    <div style={{ position: "relative", width: 330, height: 190, flex: "none" }}>
-                      <div style={{ position: "absolute", left: -6, top: 46, transform: "rotate(22deg)", transformOrigin: "center" }}>
-                        <div style={{ display: "flex", gap: 4 }}>
-                          {mapView.zones.amb[0].seats.map((st, si) => (
-                            <Seat key={si} seat={st} z="amb" t={0} s={si} />
-                          ))}
-                        </div>
-                        <div style={{ textAlign: "center", fontSize: 12, color: C.blueBorder, fontWeight: 700, marginTop: 3 }}>
-                          大使董顧桌(斜放左下角)
+                    {mapView.zones.amb && mapView.zones.amb.length > 0 && (
+                      <div style={{ position: "relative", width: 330, height: 190, flex: "none" }}>
+                        <div style={{ position: "absolute", left: -6, top: 46, transform: "rotate(22deg)", transformOrigin: "center" }}>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            {mapView.zones.amb[0].seats.map((st, si) => (
+                              <Seat key={si} seat={st} z="amb" t={0} s={si} />
+                            ))}
+                          </div>
+                          <div style={{ textAlign: "center", fontSize: 12, color: C.blueBorder, fontWeight: 700, marginTop: 3 }}>
+                            大使董顧桌(斜放左下角)
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
                     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                       {bottomRowsOf(mapView.zones.bottom).map((row, ri) => (
                         <div key={ri} style={{ display: "flex", gap: 26 }}>
