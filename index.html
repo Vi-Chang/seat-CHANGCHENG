@@ -55,7 +55,7 @@ const DEFAULT_ROSTER = {
   ],
 };
 
-const AGENDA = ["教育培訓", "總政策", "本週主題簡報", "下週主題簡報", "引薦查核"];
+const AGENDA = ["教育培訓", "總政策", "本週主題簡報", "下週主題簡報", "引薦查核", "會員宣示", "導生畢業"];
 /* 來賓簡報用行業類別(對應範本左側分類) */
 const GUEST_CATEGORIES = ["金融投資", "品牌推廣", "商業服務", "醫療健康", "食品餐飲", "時尚生活", "商品規劃包裝"];
 
@@ -104,7 +104,7 @@ const composeGuestBlock = (g) => {
 };
 const GUEST_PASTE_PLACEHOLDER =
   "直接整段貼上,例如:\n來賓姓名:沈尚緯\n專業類別:3D列印設備與解決方案\n邀約人:謝宗杰\n電子信箱:wilsonshen@git.com.tw\n公司名稱/職稱:通業技研股份有限公司\n產品/服務:3D列印設備、耗材\n需要引薦對象:需要工業級3D列印設備的夥伴與企業";
-const CIRCLED = ["①", "②", "③", "④", "⑤"];
+const CIRCLED = ["①", "②", "③", "④", "⑤", "⑥", "⑦"];
 
 /* ---------------- 工具 ---------------- */
 const pk = (a, b) => (a < b ? a + "|" + b : b + "|" + a);
@@ -127,7 +127,7 @@ const emptyWeekly = () => ({
   guests: [], // {name, industry, phone, email, inviter, committee, angel}
   proxies: [], // 由代理出席的「會員」名字
   absent: [],
-  agenda: ["", "", "", "", ""],
+  agenda: ["", "", "", "", "", "", ""],
   visitors: 0, // 分會參訪人數(不記名,座位標示「參訪」)
 });
 
@@ -692,8 +692,10 @@ function App() {
           if (!parsed.savedAt || parsed.savedAt < lastResetTime()) {
             window.storage.set("gw-weekly", JSON.stringify(emptyWeekly())).catch(() => {});
           } else {
-            if (!parsed.agenda || parsed.agenda.length !== 5)
-              parsed.agenda = ["", "", "", "", ""];
+            /* 舊版只有 5 項議程；保留已填內容並補上會員宣示、導生畢業 */
+            parsed.agenda = Array.from({ length: AGENDA.length }, (_, i) =>
+              parsed.agenda && parsed.agenda[i] ? parsed.agenda[i] : ""
+            );
             parsed.proxies = (parsed.proxies || [])
               .map((p) => (typeof p === "string" ? p : (p && p.forMember) || ""))
               .filter(Boolean);
@@ -1939,7 +1941,7 @@ function App() {
             />
           </div>
 
-          {/* 議程 ①-⑤ */}
+          {/* 議程 ①-⑦ */}
           <div style={{ marginBottom: 26 }}>
             <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
               中央議程(題目固定,每週填入負責人)
