@@ -959,7 +959,7 @@ function App() {
     if (memberTables.some((t) => t.seats.length === 1))
       warnings.push("仍有 1 人落單(總人數過少),請手動調整");
 
-    /* 分配:底排排數由系統依總桌數自動決定(≤14桌一排、>14桌兩排,再多則兩側自動延伸)
+    /* 分配:一般例會底排依總桌數自動決定；BOD 固定優先排滿正面底排 3 排(6 桌)，縮短左右直排
        來賓桌依「視野順序」優先安排:
        ① 底排內圈(正對舞台,視野最佳)② 內圈左右直排(由後往舞台方向)
        ③ 底排第二排 ④ 外圈直排(內圈滿了才排外圈) */
@@ -967,7 +967,11 @@ function App() {
     const totalAll = regular.length + proxyTables.length;
     /* 底排基準:>14 桌才考慮 4 桌;且需兩側外圍能補滿(直排桌數可平均分四欄),
        否則底排維持最少 2 桌,桌子優先補滿兩側 */
-    const bottomCap = totalAll > 14 && (totalAll - 4) % 4 === 0 ? 4 : 2;
+    const bottomCap = weekly.isBod
+      ? 6
+      : totalAll > 14 && (totalAll - 4) % 4 === 0
+      ? 4
+      : 2;
     /* 參訪桌數先行計算:參訪可與會員同排,底排(含參訪)最多 3 排(6 桌);
        底排總桌數為奇數時多拉一桌會員桌下來補滿該排,盡量填滿方形 */
     const visitorCount = Math.max(0, parseInt(weekly.visitors, 10) || 0);
