@@ -514,17 +514,28 @@ const BadgeCard = ({ g }) => (
 
 function NameBadges({ data }) {
   const guests = data.guests || [];
-  /* 一張 A4 直向 4 列×2 欄=8 張;超過 8 位自動延伸下一張(列印自動分頁) */
-  const slots = Math.max(8, Math.ceil(guests.length / 2) * 2);
-  const cards = Array.from({ length: slots }, (_, i) => guests[i] || null);
+  /* 每張 A4 固定 4 列×2 欄=8 張；超過 8 位建立獨立 A4 頁，不縮小名牌 */
+  const pageCount = Math.max(1, Math.ceil(guests.length / 8));
   const CARD_H = 255;
   return (
-    <div style={{ width: A4.shortSide, minHeight: A4.longSide, boxSizing: "border-box", background: "#fff", color: "#000", padding: "26px 20px", fontFamily: KAI, display: "grid", gridTemplateColumns: "1fr 1fr", gridAutoRows: `${CARD_H}px`, gap: "14px 14px" }}>
-      {cards.map((g, i) => (
-        <div key={i} style={{ height: CARD_H }}>
-          <BadgeCard g={g} />
-        </div>
-      ))}
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      {Array.from({ length: pageCount }, (_, pageIndex) => {
+        const cards = Array.from({ length: 8 }, (_, slotIndex) => guests[pageIndex * 8 + slotIndex] || null);
+        return (
+          <div
+            key={pageIndex}
+            id={`sheet-tent-page-${pageIndex + 1}`}
+            data-badge-page="true"
+            style={{ width: A4.shortSide, height: A4.longSide, boxSizing: "border-box", background: "#fff", color: "#000", padding: "26px 20px", fontFamily: KAI, display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: `repeat(4, ${CARD_H}px)`, gap: "14px 14px", overflow: "hidden", boxShadow: "0 1px 6px rgba(0,0,0,.2)" }}
+          >
+            {cards.map((g, i) => (
+              <div key={i} style={{ height: CARD_H }}>
+                <BadgeCard g={g} />
+              </div>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1575,13 +1586,22 @@ function App() {
       el.style.transform = prevTransform;
     }
   };
+  /* 名牌每 8 位為一張獨立 A4；逐頁下載，避免 html2canvas 把多頁縮成單頁 */
+  const downloadBadgePages = async (filename) => {
+    const pages = Array.from(document.querySelectorAll("#sheet-tent [data-badge-page='true']"));
+    if (!pages.length) return;
+    for (let i = 0; i < pages.length; i++) {
+      const suffix = pages.length > 1 ? `_第${i + 1}頁` : "";
+      await downloadPng(pages[i].id, `${filename}${suffix}`, "portrait");
+    }
+  };
   /* 一鍵同步下載:座位圖 + 例會細節表單 + 來賓簽到表 + 來賓名牌(皆為 A4) */
   const downloadMeetingSet = async () => {
     const lb = safeLabelOf(mapView && mapView.label);
     await downloadPng("seatmap", `長城鈦金名人堂分會座位圖_${lb}`, "landscape");
     await downloadPng("meeting-detail", `長城鈦金名人堂分會例會資料_${lb}`, "landscape");
     await downloadPng("sheet-sign", `來賓簽到表_${lb}`, "landscape");
-    await downloadPng("sheet-tent", `來賓名牌_${lb}`, "portrait");
+    await downloadBadgePages(`來賓名牌_${lb}`);
   };
 
   /* 產生來賓簡報 PPT(16:9):套用分會底板範本 guest_template.pptx,以 JSZip 填入代號並移除多餘頁,
@@ -2234,7 +2254,7 @@ function App() {
               {/* 例會表單:與座位圖同頁,隨「一鍵下載」一起輸出 */}
               <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", margin: "18px 0 12px", lineHeight: 1.8 }}>
                 以下表單自動帶入「① 本週輸入」的資料,並隨上方「一鍵下載」同步輸出。
-                細節表單與簽到表為 A4 橫向、名牌為 A4 直向(一頁 8 張,超過自動延伸);出席率等空白欄位留待現場手寫。
+                細節表單與簽到表為 A4 橫向、名牌為 A4 直向(一頁固定 8 張,超過自動新增下一張 A4、不縮小);出席率等空白欄位留待現場手寫。
                 另可按「📽 下載來賓簡報 PPT(16:9)」,套用分會底板產出單一 PowerPoint 檔:來賓 15 秒簡報(每位一頁,含照片框,下載後在 PowerPoint 自行貼上照片)+ 來賓一頁式清單。
               </div>
               {sheetData.guests.length === 0 && (
@@ -2252,7 +2272,11 @@ function App() {
                     <span style={{ fontWeight: 800, fontSize: 16 }}>{s.title}</span>
                     <button
                       style={{ ...btn(false), padding: "6px 14px" }}
-                      onClick={() => downloadPng(s.id, `${s.file}_${safeLabelOf(sheetData.label)}`, s.a4)}
+                      onClick={() =>
+                        s.key === "tent"
+                          ? downloadBadgePages(`${s.file}_${safeLabelOf(sheetData.label)}`)
+                          : downloadPng(s.id, `${s.file}_${safeLabelOf(sheetData.label)}`, s.a4)
+                      }
                     >
                       📥 單獨下載
                     </button>
