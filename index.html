@@ -18,11 +18,70 @@
 <body>
 <div id="root"></div>
 <script>
+var GW_SUPABASE_URL = "https://fjqishllglruchsoyscl.supabase.co";
+var GW_SUPABASE_KEY = "sb_publishable_j9kjZaQaj7TM-8wZzSj_wg_6tDHOQB_";
 window.storage = {
-  get: async function(k){ var v = localStorage.getItem("gw:"+k); if(v===null) throw new Error("key not found: "+k); return {key:k, value:v}; },
-  set: async function(k,v){ localStorage.setItem("gw:"+k, v); return {key:k, value:v}; },
-  delete: async function(k){ localStorage.removeItem("gw:"+k); return {key:k, deleted:true}; },
-  list: async function(){ var ks=[]; for(var i=0;i<localStorage.length;i++){var key=localStorage.key(i); if(key.indexOf("gw:")===0) ks.push(key.slice(3));} return {keys:ks}; }
+  password: (function(){ try{return sessionStorage.getItem("gw-cloud-pass")||"";}catch(e){return "";} })(),
+  cloudKeys: ["gw-roster","gw-history","gw-saved","gw-weekly"],
+  pending: 0,
+  _writes: {},
+  rpc: async function(name, body){
+    var res = await fetch(GW_SUPABASE_URL+"/rest/v1/rpc/"+name, {
+      method:"POST",
+      headers:{"apikey":GW_SUPABASE_KEY,"Authorization":"Bearer "+GW_SUPABASE_KEY,"Content-Type":"application/json"},
+      body:JSON.stringify(body||{})
+    });
+    if(!res.ok) throw new Error("cloud "+res.status+": "+await res.text());
+    return await res.json();
+  },
+  login: async function(pass){ return await this.rpc("gw_auth",{p_password:pass}); },
+  getAll: async function(){
+    if(!this.password) throw new Error("login required");
+    return await this.rpc("gw_get_all",{p_password:this.password});
+  },
+  setPassword: function(pass){
+    this.password=pass||"";
+    try{ if(pass) sessionStorage.setItem("gw-cloud-pass",pass); else sessionStorage.removeItem("gw-cloud-pass"); }catch(e){}
+  },
+  get: async function(k){
+    var local=localStorage.getItem("gw:"+k);
+    if(k==="gw-photos") { if(local===null) throw new Error("key not found: "+k); return {key:k,value:local}; }
+    if(!this.password) throw new Error("login required");
+    try{
+      var remote=await this.rpc("gw_get_value",{p_password:this.password,p_key:k});
+      if(remote!==null && remote!==undefined){ localStorage.setItem("gw:"+k,remote); return {key:k,value:remote}; }
+    }catch(e){ if(local===null) throw e; window.dispatchEvent(new CustomEvent("gw-sync-error")); }
+    if(local===null) throw new Error("key not found: "+k);
+    return {key:k,value:local};
+  },
+  set: async function(k,v){
+    localStorage.setItem("gw:"+k,v);
+    if(k==="gw-photos") return {key:k,value:v,local:true};
+    if(!this.password) throw new Error("login required");
+    this.pending++;
+    var self=this;
+    var write=(this._writes[k]||Promise.resolve()).catch(function(){}).then(function(){
+      return self.rpc("gw_set_value",{p_password:self.password,p_key:k,p_value:v});
+    });
+    this._writes[k]=write.finally(function(){ self.pending=Math.max(0,self.pending-1); });
+    try{ await this._writes[k]; }
+    catch(e){ window.dispatchEvent(new CustomEvent("gw-sync-error")); throw e; }
+    return {key:k,value:v};
+  },
+  delete: async function(k){
+    localStorage.removeItem("gw:"+k);
+    if(k!=="gw-photos" && this.password) await this.rpc("gw_delete_value",{p_password:this.password,p_key:k});
+    return {key:k,deleted:true};
+  },
+  migrateLocal: async function(){
+    for(var i=0;i<this.cloudKeys.length;i++){
+      var k=this.cloudKeys[i], local=localStorage.getItem("gw:"+k);
+      if(local===null) continue;
+      var remote=await this.rpc("gw_get_value",{p_password:this.password,p_key:k});
+      if(remote===null || remote===undefined) await this.rpc("gw_set_value",{p_password:this.password,p_key:k,p_value:local});
+    }
+  },
+  list: async function(){ return {keys:this.cloudKeys.slice()}; }
 };
 </script>
 <script type="text/babel" data-presets="react">
@@ -629,6 +688,7 @@ function App() {
   const askConfirm = (message, onConfirm) => setConfirmDlg({ message, onConfirm });
   const [photos, setPhotos] = useState({}); // { pid: jpeg dataURL } 來賓照片(暫存,每週三 12:00 清除)
   const [showPptPreview, setShowPptPreview] = useState(false); // 來賓簡報預覽開關
+  const [syncStatus, setSyncStatus] = useState("connecting"); // connecting|saving|synced|error
 
   /* 座位圖縮放:電腦版整張不超出畫面寬度(下載時仍以原始尺寸輸出) */
   const mapWrapRef = useRef(null);
@@ -653,14 +713,13 @@ function App() {
     return () => window.removeEventListener("resize", fit);
   });
 
-  /* ---------- 管理員登入(前端門檻:僅防誤用,無法防原始碼檢視) ---------- */
-  const [authed, setAuthed] = useState(() => {
-    try { return sessionStorage.getItem("gw-auth") === "1"; } catch (e) { return false; }
-  });
-  const [loginDlg, setLoginDlg] = useState(null); // {next}
+  /* ---------- 管理員登入(Supabase 伺服器驗證；登入後才可讀寫共用資料) ---------- */
+  const [authed, setAuthed] = useState(() => !!window.storage.password);
+  const [loginDlg, setLoginDlg] = useState(() => window.storage.password ? null : { next: null }); // {next}
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
   const [loginErr, setLoginErr] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
   const requireAuth = (next) => {
     if (authed) { next(); return; }
     setLoginUser("");
@@ -668,22 +727,36 @@ function App() {
     setLoginErr("");
     setLoginDlg({ next });
   };
-  const tryLogin = () => {
-    if (loginUser.trim() === "admin" && loginPass === "3345678") {
-      try { sessionStorage.setItem("gw-auth", "1"); } catch (e) {}
-      setAuthed(true);
-      const next = loginDlg && loginDlg.next;
-      setLoginDlg(null);
-      if (next) next();
-    } else {
+  const tryLogin = async () => {
+    if (loginUser.trim() !== "admin" || !loginPass) {
       setLoginErr("帳號或密碼錯誤");
+      return;
+    }
+    setLoginBusy(true);
+    setLoginErr("");
+    try {
+      const ok = await window.storage.login(loginPass);
+      if (!ok) throw new Error("invalid login");
+      window.storage.setPassword(loginPass);
+      try { sessionStorage.setItem("gw-auth", "1"); } catch (e) {}
+      await window.storage.migrateLocal();
+      setAuthed(true);
+      setLoginDlg(null);
+      window.location.reload();
+    } catch (e) {
+      window.storage.setPassword("");
+      setLoginErr("帳號或密碼錯誤，或目前無法連接雲端資料庫");
+    } finally {
+      setLoginBusy(false);
     }
   };
   const logout = () => {
     try { sessionStorage.removeItem("gw-auth"); } catch (e) {}
+    window.storage.setPassword("");
     setAuthed(false);
     setViewing(null);
     setTab("week");
+    setLoginDlg({ next: null });
   };
 
   /* 載入儲存資料 */
@@ -772,9 +845,72 @@ function App() {
     })();
   }, []);
 
+  /* 每 5 秒取得一次雲端最新狀態；多人同時使用時採最後一次輸入為準 */
+  useEffect(() => {
+    if (!authed) return;
+    let stopped = false;
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const refreshCloud = async () => {
+      if (window.storage.pending > 0) return;
+      try {
+        const cloud = await window.storage.getAll();
+        if (stopped) return;
+        if (cloud["gw-roster"]) {
+          const parsed = { ...DEFAULT_ROSTER, ...JSON.parse(cloud["gw-roster"]) };
+          if (!Array.isArray(parsed.committee)) parsed.committee = [];
+          if (!Array.isArray(parsed.eduTeam)) parsed.eduTeam = [];
+          if (!Array.isArray(parsed.mentorPairs)) parsed.mentorPairs = [];
+          if (!Array.isArray(parsed.sound)) parsed.sound = [...DEFAULT_ROSTER.sound];
+          while (parsed.sound.length < 3) parsed.sound.push("");
+          const cSet = new Set(parsed.committee.map((s) => (s || "").trim()));
+          parsed.members = (parsed.members || []).filter((m) => {
+            const name = (m || "").trim();
+            return name !== "張維麟" && !cSet.has(name);
+          });
+          setRoster((cur) => same(cur, parsed) ? cur : parsed);
+        }
+        if (cloud["gw-history"]) {
+          const parsed = JSON.parse(cloud["gw-history"]);
+          setHistory((cur) => same(cur, parsed) ? cur : parsed);
+        }
+        if (cloud["gw-saved"]) {
+          const parsed = JSON.parse(cloud["gw-saved"]);
+          if (Array.isArray(parsed)) setSaved((cur) => same(cur, parsed) ? cur : parsed);
+        }
+        if (cloud["gw-weekly"]) {
+          const parsed = { ...emptyWeekly(), ...JSON.parse(cloud["gw-weekly"]) };
+          parsed.agenda = Array.from({ length: AGENDA.length }, (_, i) => parsed.agenda && parsed.agenda[i] ? parsed.agenda[i] : "");
+          parsed.proxies = (parsed.proxies || []).map((p) => typeof p === "string" ? p : (p && p.forMember) || "").filter(Boolean);
+          parsed.guests = (parsed.guests || []).map((g) => {
+            const ng = { ...g };
+            ng.raw = g.raw || composeGuestBlock(ng);
+            return ng;
+          });
+          parsed.visitors = Math.max(0, parseInt(parsed.visitors, 10) || 0);
+          setWeekly((cur) => same(cur, parsed) ? cur : parsed);
+        }
+        setSyncStatus("synced");
+      } catch (e) {
+        if (!stopped) setSyncStatus("error");
+      }
+    };
+    const onError = () => setSyncStatus("error");
+    window.addEventListener("gw-sync-error", onError);
+    refreshCloud();
+    const timer = setInterval(refreshCloud, 5000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      window.removeEventListener("gw-sync-error", onError);
+    };
+  }, [authed]);
+
   const persist = (key, obj) => {
     try {
-      window.storage.set(key, JSON.stringify(obj)).catch(() => {});
+      setSyncStatus("saving");
+      window.storage.set(key, JSON.stringify(obj))
+        .then(() => setSyncStatus("synced"))
+        .catch(() => setSyncStatus("error"));
     } catch (e) {}
   };
   const updateRoster = (r) => {
@@ -1433,7 +1569,7 @@ function App() {
   const unassignCommittee = (name) =>
     releaseTo(name, { committee: (roster.committee || []).filter((c) => c.trim() !== name) }, "委員");
 
-  /* 任何人輸入即暫存(於自己的瀏覽器);savedAt 供每週三 10:00 過期判斷 */
+  /* 登入者輸入即同步到雲端，並保留本機備份；savedAt 供每週三 10:00 過期判斷 */
   const upWeekly = (w) => {
     setWeekly(w);
     persist("gw-weekly", { ...w, savedAt: Date.now() });
@@ -1744,6 +1880,11 @@ function App() {
             {history ? `已存上週(${history.label})分桌紀錄,排位自動避開` : "尚無歷史紀錄,第一次排位為隨機分桌"}
           </div>
         </div>
+        {authed && (
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: syncStatus === "error" ? C.red : syncStatus === "synced" ? "#287A38" : "#8A6A16", background: "#F7F4EA", borderRadius: 12, padding: "5px 9px" }}>
+            {syncStatus === "error" ? "● 雲端連線異常（保留本機資料）" : syncStatus === "saving" ? "● 正在儲存…" : syncStatus === "synced" ? "● 雲端已同步" : "● 正在連接雲端…"}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
           {tabBtn("week", "① 本週輸入")}
           {tabBtn("map", "② 座位圖與表單")}
@@ -2053,7 +2194,7 @@ function App() {
             產生本週座位表 →
           </button>
           <div style={{ fontSize: 12.5, color: "#7A6E5A", marginTop: 8 }}>
-            任何人皆可在此頁協助輸入本週資料(自動暫存於此瀏覽器);產生座位表與其他功能需管理員登入。
+            本週資料會自動儲存在雲端；使用相同帳號密碼登入的裝置會同步顯示最新內容。
           </div>
         </div>
       )}
@@ -2643,9 +2784,9 @@ function App() {
       {loginDlg && (
         <div className="no-print" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
           <div style={{ background: "#fff", borderRadius: 10, padding: "24px 28px", width: 300, margin: 16, boxShadow: "0 8px 30px rgba(0,0,0,.3)" }}>
-            <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 6 }}>管理員登入</div>
+            <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 6 }}>共用資料登入</div>
             <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 14 }}>
-              此功能僅限管理員;任何人皆可在「① 本週輸入」協助填資料。
+              登入後即可查看及編輯分會共用的本週資料與座位表。
             </div>
             <input
               style={{ ...inputStyle, width: "100%", boxSizing: "border-box", marginBottom: 8 }}
@@ -2660,13 +2801,15 @@ function App() {
               value={loginPass}
               onChange={(e) => setLoginPass(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") tryLogin();
+                if (e.key === "Enter" && !loginBusy) tryLogin();
               }}
             />
             {loginErr && <div style={{ color: C.red, fontSize: 13, marginTop: 8 }}>{loginErr}</div>}
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
-              <button style={btn(false)} onClick={() => setLoginDlg(null)}>取消</button>
-              <button style={btn(true)} onClick={tryLogin}>登入</button>
+              {authed && <button style={btn(false)} onClick={() => setLoginDlg(null)}>取消</button>}
+              <button style={{ ...btn(true), opacity: loginBusy ? .65 : 1 }} disabled={loginBusy} onClick={tryLogin}>
+                {loginBusy ? "連線中…" : "登入"}
+              </button>
             </div>
           </div>
         </div>

@@ -15,3 +15,6 @@ Desktop.ini
 *.log
 *.bak
 ~$*
+
+# Supabase local link/cache files
+supabase/.temp/
