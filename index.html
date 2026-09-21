@@ -190,7 +190,30 @@ const emptyWeekly = () => ({
   absent: [],
   agenda: ["", "", "", "", "", "", ""],
   visitors: 0, // 分會參訪人數(不記名,座位標示「參訪」)
+  staff: {
+    dutyGroup: "",
+    photographers: ["", ""],
+    guestDesk: "",
+    setup: ["", ""],
+    guestHost: "",
+  },
 });
+
+const normalizeStaff = (staff) => {
+  const s = staff || {};
+  const two = (v) => {
+    const a = Array.isArray(v) ? v.slice(0, 2) : [];
+    while (a.length < 2) a.push("");
+    return a.map((x) => x || "");
+  };
+  return {
+    dutyGroup: s.dutyGroup || "",
+    photographers: two(s.photographers),
+    guestDesk: s.guestDesk || "",
+    setup: two(s.setup),
+    guestHost: s.guestHost || "",
+  };
+};
 
 const chairRowForWeek = (roster, isBod) => {
   if (!isBod) return roster.chairRow.map((c) => ({ ...c }));
@@ -420,6 +443,56 @@ const Blank = ({ w, v }) => (
     {v || " "}
   </span>
 );
+
+const staffItemsOf = (raw) => {
+  const s = normalizeStaff(raw);
+  return [
+    ["本週值星行政小組", s.dutyGroup ? `第 ${s.dutyGroup} 組` : "第　組"],
+    ["攝影手", s.photographers.filter(Boolean).join("、") || "—"],
+    ["來賓接待桌負責人", s.guestDesk || "—"],
+    ["場佈負責人", s.setup.filter(Boolean).join("、") || "—"],
+    ["來賓訪問主持人", s.guestHost || "—"],
+  ];
+};
+
+function StaffStrip({ staff }) {
+  return (
+    <div style={{ marginTop: 28, border: `3px solid ${C.red}`, borderRadius: 8, padding: 8, display: "grid", gridTemplateColumns: "1.05fr 1.1fr 1.35fr 1.1fr 1.25fr", background: "#fff" }}>
+      {staffItemsOf(staff).map(([role, names], i) => (
+        <div key={role} style={{ textAlign: "center", borderLeft: i ? `1.5px solid ${C.seatBorder}` : "none", padding: "3px 7px", minWidth: 0 }}>
+          <div style={{ color: C.red, fontSize: 12, fontWeight: 900, whiteSpace: "nowrap" }}>{role}</div>
+          <div style={{ fontSize: 15, fontWeight: 800, marginTop: 3, minHeight: 22, overflowWrap: "anywhere" }}>{names}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StaffSheet({ data }) {
+  const rows = staffItemsOf(data.staff);
+  const td = { border: "1.5px solid #000", padding: "18px 14px", fontSize: 23 };
+  return (
+    <div style={{ width: A4.shortSide, height: A4.longSide, boxSizing: "border-box", background: "#fff", color: "#000", padding: "62px 68px", fontFamily: KAI }}>
+      <div style={{ textAlign: "center", fontSize: 32, fontWeight: 800, letterSpacing: 3 }}>長城鈦金名人堂分會</div>
+      <div style={{ textAlign: "center", fontSize: 28, fontWeight: 800, marginTop: 10 }}>例會工作人員清單</div>
+      <div style={{ textAlign: "center", fontSize: 20, margin: "16px 0 34px" }}>{fmtMinguo(data.label)} 日</div>
+      <table style={{ borderCollapse: "collapse", width: "100%" }}>
+        <tbody>
+          {rows.map(([role, names]) => (
+            <tr key={role}>
+              <th style={{ ...td, width: "43%", background: "#F7F0DA", color: C.red, textAlign: "left" }}>{role}</th>
+              <td style={{ ...td, fontWeight: 800, textAlign: "center" }}>{names === "—" ? "" : names}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ marginTop: 42, fontSize: 18, lineHeight: 2.1, color: "#444" }}>
+        <div>工作確認：＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿</div>
+        <div>備註：＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿</div>
+      </div>
+    </div>
+  );
+}
 
 /* 例會前置檢查清單(固定內容,印於細節表單左半) */
 const CHECKLIST = [
@@ -799,6 +872,7 @@ function App() {
         const w = await window.storage.get("gw-weekly");
         if (w) {
           const parsed = { ...emptyWeekly(), ...JSON.parse(w.value) };
+          parsed.staff = normalizeStaff(parsed.staff);
           /* 每週三 10:00 後表單恢復空白:暫存時間早於最近一次週三 10:00 即視為上週資料 */
           if (!parsed.savedAt || parsed.savedAt < lastResetTime()) {
             window.storage.set("gw-weekly", JSON.stringify(emptyWeekly())).catch(() => {});
@@ -886,6 +960,7 @@ function App() {
         }
         if (cloud["gw-weekly"]) {
           const parsed = { ...emptyWeekly(), ...JSON.parse(cloud["gw-weekly"]) };
+          parsed.staff = normalizeStaff(parsed.staff);
           parsed.agenda = Array.from({ length: AGENDA.length }, (_, i) => parsed.agenda && parsed.agenda[i] ? parsed.agenda[i] : "");
           parsed.proxies = (parsed.proxies || []).map((p) => typeof p === "string" ? p : (p && p.forMember) || "").filter(Boolean);
           parsed.guests = (parsed.guests || []).map((g) => {
@@ -1482,6 +1557,7 @@ function App() {
       isBod: !!weekly.isBod,
       zones: JSON.parse(JSON.stringify(z)),
       agenda: [...weekly.agenda],
+      staff: normalizeStaff(weekly.staff),
       stats: result.stats,
       chairRow: chairRowForWeek(roster, weekly.isBod),
       sound: [...roster.sound],
@@ -1490,6 +1566,7 @@ function App() {
         guests: weekly.guests.filter((g) => g.name && g.name.trim()).map((g) => ({ ...g })),
         proxies: [...weekly.proxies],
         absent: [...weekly.absent],
+        staff: normalizeStaff(weekly.staff),
         memberTotal: result.stats.totalMembers,
       },
     };
@@ -1662,6 +1739,8 @@ function App() {
     setWeekly(w);
     persist("gw-weekly", { ...w, savedAt: Date.now() });
   };
+  const updateStaff = (patch) =>
+    upWeekly({ ...weekly, staff: { ...normalizeStaff(weekly.staff), ...patch } });
 
   /* 來賓照片:存於獨立 gw-photos(壓縮後),每週三 12:00 自動刪除 */
   const savePhotos = (map) => {
@@ -1759,7 +1838,7 @@ function App() {
   const mapView = viewing
     ? viewing
     : result
-    ? { label: weekly.label, isBod: !!weekly.isBod, zones: result.zones, agenda: weekly.agenda, stats: result.stats, chairRow: chairRowForWeek(roster, weekly.isBod), sound: roster.sound }
+    ? { label: weekly.label, isBod: !!weekly.isBod, zones: result.zones, agenda: weekly.agenda, staff: normalizeStaff(weekly.staff), stats: result.stats, chairRow: chairRowForWeek(roster, weekly.isBod), sound: roster.sound }
     : null;
 
   const safeLabelOf = (label) => (label || "未命名").replace(/[\\/:*?"<>|]/g, "-");
@@ -1819,12 +1898,13 @@ function App() {
       await downloadPng(pages[i].id, `${filename}${suffix}`, "portrait");
     }
   };
-  /* 一鍵同步下載:座位圖 + 例會細節表單 + 來賓簽到表 + 來賓名牌(皆為 A4) */
+  /* 一鍵同步下載:座位圖 + 例會細節表單 + 來賓簽到表 + 工作人員清單 + 來賓名牌(皆為 A4) */
   const downloadMeetingSet = async () => {
     const lb = safeLabelOf(mapView && mapView.label);
     await downloadPng("seatmap", `長城鈦金名人堂分會座位圖_${lb}`, "landscape");
     await downloadPng("meeting-detail", `長城鈦金名人堂分會例會資料_${lb}`, "landscape");
     await downloadPng("sheet-sign", `來賓簽到表_${lb}`, "landscape");
+    await downloadPng("staff-sheet", `工作人員清單_${lb}`, "portrait");
     await downloadBadgePages(`來賓名牌_${lb}`);
   };
 
@@ -1949,6 +2029,7 @@ function App() {
           guests: weekly.guests.filter((g) => g.name && g.name.trim()),
           proxies: weekly.proxies,
           absent: weekly.absent,
+          staff: normalizeStaff(weekly.staff),
           memberTotal: memberOptions.length + fixedCount,
         };
 
@@ -2236,6 +2317,77 @@ function App() {
             />
           </div>
 
+          {/* 本週工作人員 */}
+          <div style={{ marginBottom: 26, border: `1.5px solid ${C.seatBorder}`, borderRadius: 9, background: "#fff", padding: "14px 16px" }}>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>本週工作人員設定</div>
+            <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 10 }}>
+              全部直接輸入姓名；內容會顯示在座位圖底部，並產出一張 A4 工作人員清單。
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "180px minmax(220px, 1fr)", gap: "9px 10px", alignItems: "center" }}>
+              <label style={{ fontWeight: 700 }}>本週值星行政小組</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span>第</span>
+                <input
+                  style={{ ...inputStyle, width: 90 }}
+                  value={normalizeStaff(weekly.staff).dutyGroup}
+                  onChange={(e) => updateStaff({ dutyGroup: e.target.value })}
+                  placeholder="組別"
+                />
+                <span>組</span>
+              </div>
+
+              <label style={{ fontWeight: 700 }}>攝影手（2 位）</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {normalizeStaff(weekly.staff).photographers.map((name, i) => (
+                  <input
+                    key={i}
+                    style={{ ...inputStyle, width: 145 }}
+                    value={name}
+                    placeholder={`攝影手 ${i + 1}`}
+                    onChange={(e) => {
+                      const names = [...normalizeStaff(weekly.staff).photographers];
+                      names[i] = e.target.value;
+                      updateStaff({ photographers: names });
+                    }}
+                  />
+                ))}
+              </div>
+
+              <label style={{ fontWeight: 700 }}>來賓接待桌負責人（1 位）</label>
+              <input
+                style={{ ...inputStyle, width: 220 }}
+                value={normalizeStaff(weekly.staff).guestDesk}
+                placeholder="輸入姓名"
+                onChange={(e) => updateStaff({ guestDesk: e.target.value })}
+              />
+
+              <label style={{ fontWeight: 700 }}>場佈負責人（2 位）</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {normalizeStaff(weekly.staff).setup.map((name, i) => (
+                  <input
+                    key={i}
+                    style={{ ...inputStyle, width: 145 }}
+                    value={name}
+                    placeholder={`場佈 ${i + 1}`}
+                    onChange={(e) => {
+                      const names = [...normalizeStaff(weekly.staff).setup];
+                      names[i] = e.target.value;
+                      updateStaff({ setup: names });
+                    }}
+                  />
+                ))}
+              </div>
+
+              <label style={{ fontWeight: 700 }}>來賓訪問主持人（1 位）</label>
+              <input
+                style={{ ...inputStyle, width: 220 }}
+                value={normalizeStaff(weekly.staff).guestHost}
+                placeholder="輸入姓名"
+                onChange={(e) => updateStaff({ guestHost: e.target.value })}
+              />
+            </div>
+          </div>
+
           {/* 議程 ①-⑦ */}
           <div style={{ marginBottom: 26 }}>
             <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
@@ -2315,7 +2467,7 @@ function App() {
                     </button>
                   </>
                 )}
-                <button style={btn(true)} onClick={downloadMeetingSet}>📥 一鍵下載(座位圖+例會資料+簽到表+名牌)</button>
+                <button style={btn(true)} onClick={downloadMeetingSet}>📥 一鍵下載(座位圖+例會資料+簽到表+工作人員+名牌)</button>
                 <button style={btn(false)} onClick={downloadGuestPptx}>📽 下載來賓簡報 PPT(16:9)</button>
                 <button style={btn(false)} onClick={() => setShowPptPreview((v) => !v)}>
                   {showPptPreview ? "🙈 隱藏簡報預覽" : "👁 預覽來賓簡報"}
@@ -2477,13 +2629,15 @@ function App() {
                       ))}
                     </div>
                   </div>
+                  {/* 本週工作人員：顯示於座位圖最下方 */}
+                  <StaffStrip staff={mapView.staff} />
                 </div>
               </div>
               </div>
               {/* 例會表單:與座位圖同頁,隨「一鍵下載」一起輸出 */}
               <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", margin: "18px 0 12px", lineHeight: 1.8 }}>
                 以下表單自動帶入「① 本週輸入」的資料,並隨上方「一鍵下載」同步輸出。
-                細節表單與簽到表為 A4 橫向、名牌為 A4 直向(一頁固定 8 張,超過自動新增下一張 A4、不縮小);出席率等空白欄位留待現場手寫。
+                細節表單與簽到表為 A4 橫向、工作人員清單與名牌為 A4 直向(名牌一頁固定 8 張,超過自動新增下一張 A4、不縮小);出席率等空白欄位留待現場手寫。
                 另可按「📽 下載來賓簡報 PPT(16:9)」,套用分會底板產出單一 PowerPoint 檔:來賓 15 秒簡報(每位一頁,含照片框,下載後在 PowerPoint 自行貼上照片)+ 來賓一頁式清單。
               </div>
               {sheetData.guests.length === 0 && (
@@ -2494,6 +2648,7 @@ function App() {
               {[
                 { key: "detail", title: "例會細節表單", id: "meeting-detail", file: "例會資料", a4: "landscape", body: <DetailSheet data={sheetData} /> },
                 { key: "sign", title: "來賓簽到表", id: "sheet-sign", file: "來賓簽到表", a4: "landscape", body: <GuestSignSheet data={sheetData} /> },
+                { key: "staff", title: "工作人員清單", id: "staff-sheet", file: "工作人員清單", a4: "portrait", body: <StaffSheet data={sheetData} /> },
                 { key: "tent", title: "來賓名牌", id: "sheet-tent", file: "來賓名牌", a4: "portrait", body: <NameBadges data={sheetData} /> },
               ].map((s) => (
                 <div key={s.key} style={{ marginBottom: 26 }}>
