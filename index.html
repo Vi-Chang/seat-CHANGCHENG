@@ -97,6 +97,7 @@ const DEFAULT_ROSTER = {
     { role: "教育協調員", name: "陳佩妏" },
   ],
   sound: ["鄭志榮", "鄧力瑋", ""],
+  mic: ["", ""],
   ambassadors: ["", ""],
   /* 委員名單(隨領導團隊改選一起更新) */
   committee: ["張立予", "羅舒妍", "許淑媛", "李翠松", "鄧力瑋", "吳俊霖", "曹珩堉", "胡芸榛"],
@@ -771,6 +772,9 @@ function App() {
           if (!Array.isArray(parsed.mentorPairs)) parsed.mentorPairs = [];
           if (!Array.isArray(parsed.sound)) parsed.sound = [...DEFAULT_ROSTER.sound];
           while (parsed.sound.length < 3) parsed.sound.push(""); // 電音固定 3 格(可留空)
+          if (!Array.isArray(parsed.mic)) parsed.mic = ["", ""];
+          parsed.mic = parsed.mic.slice(0, 2);
+          while (parsed.mic.length < 2) parsed.mic.push("");
           const cSet = new Set(parsed.committee.map((s) => (s || "").trim()));
           parsed.members = (parsed.members || []).filter((m) => {
             const name = (m || "").trim();
@@ -862,6 +866,9 @@ function App() {
           if (!Array.isArray(parsed.mentorPairs)) parsed.mentorPairs = [];
           if (!Array.isArray(parsed.sound)) parsed.sound = [...DEFAULT_ROSTER.sound];
           while (parsed.sound.length < 3) parsed.sound.push("");
+          if (!Array.isArray(parsed.mic)) parsed.mic = ["", ""];
+          parsed.mic = parsed.mic.slice(0, 2);
+          while (parsed.mic.length < 2) parsed.mic.push("");
           const cSet = new Set(parsed.committee.map((s) => (s || "").trim()));
           parsed.members = (parsed.members || []).filter((m) => {
             const name = (m || "").trim();
@@ -926,8 +933,9 @@ function App() {
     const inactiveChairNames = weekly.isBod
       ? roster.chairRow.map((c) => c.name.trim()).filter((n) => n && !activeChairNames.has(n))
       : [];
-    /* 輪換名單 = 會員 ∪ 委員(委員為獨立名單),扣除固定席(主席排/電音/大使) */
+    /* 輪換名單 = 會員 ∪ 委員 ∪ 傳 Mic 手；傳 Mic 手不進來賓桌，稍後固定到角落 */
     const committeeAll = (roster.committee || []).map((s) => s.trim()).filter(Boolean);
+    const micNames = [...new Set((roster.mic || []).map((s) => (s || "").trim()).filter(Boolean))];
     const fixedNames = new Set(
       [
         ...activeChairRow.map((c) => c.name.trim()),
@@ -936,7 +944,7 @@ function App() {
       ].filter(Boolean)
     );
     const members = [
-      ...new Set([...roster.members.map((s) => s.trim()).filter(Boolean), ...committeeAll, ...inactiveChairNames]),
+      ...new Set([...roster.members.map((s) => s.trim()).filter(Boolean), ...committeeAll, ...inactiveChairNames, ...micNames]),
     ].filter((n) => !fixedNames.has(n));
     const memberSet = new Set(members);
     const absent = new Set(weekly.absent);
@@ -965,6 +973,8 @@ function App() {
 
     /* 可指派名單(逐步扣除已被指定/指派者) */
     const avail = new Set(attendSet);
+    const micAttending = micNames.filter((n) => avail.has(n));
+    micAttending.forEach((n) => avail.delete(n)); // 先保留，避免成為來賓旁的委員或小天使
     const committeeAttending = () =>
       committeeAll.filter((c) => avail.has(c) && !bondOf.has(c));
 
@@ -1038,6 +1048,8 @@ function App() {
         });
       });
 
+    /* 來賓桌完成後才讓傳 Mic 手加入一般會員分桌 */
+    micAttending.forEach((n) => avail.add(n));
     let pool = shuffle([...avail]);
     const takeUnbonded = () => {
       const i = pool.findIndex((p) => !bondOf.has(p));
@@ -1236,6 +1248,67 @@ function App() {
     slots.bottom.forEach((t, i) => {
       if (t.type === "guest" && i % 2 === 0) t.seats.reverse();
     });
+
+    /* 傳 Mic 手固定在非來賓桌的外側角位；依例會日期輪換角落，同週重排仍維持相同角落。 */
+    const micCornerCandidates = [];
+    const addMicCorner = (z, t, s) => {
+      const table = slots[z] && slots[z][t];
+      if (!table || table.type !== "member" || !table.seats[s]) return;
+      const key = `${z}:${t}:${s}`;
+      if (!micCornerCandidates.some((x) => x.key === key)) micCornerCandidates.push({ z, t, s, key });
+    };
+    if (slots.LO.length) {
+      addMicCorner("LO", slots.LO.length - 1, 2);
+      addMicCorner("LO", slots.LO.length - 1, 0);
+    }
+    for (let i = slots.RO.length - 1; i >= 0; i--) {
+      if (slots.RO[i].type === "member") {
+        addMicCorner("RO", i, 2);
+        addMicCorner("RO", i, 0);
+        break;
+      }
+    }
+    if (slots.bottom.length) {
+      const firstMember = slots.bottom.findIndex((t) => t.type === "member");
+      let lastMember = -1;
+      for (let i = slots.bottom.length - 1; i >= 0; i--) {
+        if (slots.bottom[i].type === "member") { lastMember = i; break; }
+      }
+      if (firstMember >= 0) addMicCorner("bottom", firstMember, 0);
+      if (lastMember >= 0) addMicCorner("bottom", lastMember, 2);
+    }
+    if (slots.LI.length) {
+      addMicCorner("LI", slots.LI.length - 1, 2);
+      addMicCorner("LI", slots.LI.length - 1, 0);
+    }
+    if (slots.RI.length) {
+      addMicCorner("RI", slots.RI.length - 1, 2);
+      addMicCorner("RI", slots.RI.length - 1, 0);
+    }
+
+    const micSeed = String(weekly.label || "").split("").reduce((n, ch) => n + ch.charCodeAt(0), 0);
+    if (micCornerCandidates.length) {
+      const turn = micSeed % micCornerCandidates.length;
+      const orderedCorners = micCornerCandidates.slice(turn).concat(micCornerCandidates.slice(0, turn));
+      micAttending.forEach((name, i) => {
+        const target = orderedCorners[i % orderedCorners.length];
+        let source = null;
+        ["LO", "LI", "RI", "RO", "bottom"].some((z) =>
+          slots[z].some((t, ti) => {
+            const si = t.seats.findIndex((s) => s.name === name);
+            if (si < 0) return false;
+            source = { z, t: ti, s: si };
+            return true;
+          })
+        );
+        if (!source) return;
+        const temp = slots[target.z][target.t].seats[target.s];
+        slots[target.z][target.t].seats[target.s] = slots[source.z][source.t].seats[source.s];
+        slots[source.z][source.t].seats[source.s] = temp;
+      });
+    } else if (micAttending.length) {
+      warnings.push("目前沒有可用的非來賓角落座位，傳 Mic 手請現場手動調整");
+    }
 
     /* 分會參訪桌:不記名、附加在底排會員/來賓桌之後(同排可混坐,會員與來賓在內側);
        桌數已於前面與 bottomCount 一併計算 */
@@ -1439,6 +1512,7 @@ function App() {
       ...(roster.committee || []),
       ...roster.chairRow.map((c) => c.name),
       ...roster.sound,
+      ...(roster.mic || []),
       ...roster.ambassadors,
     ].some((m) => (m || "").trim() === name);
     if (exists) {
@@ -1476,12 +1550,13 @@ function App() {
   /* ---------- 屆期交接:一鍵卸任與拖曳指派 ---------- */
   const syncRosterTexts = (r) => updateRoster(r);
   const retireAll = () => {
-    askConfirm("確定卸除所有職務嗎?主席排、電音、大使、委員將全部清空,名字回到會員名單。", doRetireAll);
+    askConfirm("確定卸除所有職務嗎?主席排、電音、傳 Mic 手、大使、委員將全部清空,名字回到會員名單。", doRetireAll);
   };
   const doRetireAll = () => {
     const names = [
       ...roster.chairRow.map((c) => c.name.trim()),
       ...roster.sound.map((s) => (s || "").trim()),
+      ...(roster.mic || []).map((s) => (s || "").trim()),
       ...roster.ambassadors.map((a) => (a || "").trim()),
       ...(roster.committee || []).map((s) => s.trim()),
     ].filter(Boolean);
@@ -1491,6 +1566,7 @@ function App() {
       members,
       chairRow: roster.chairRow.map((c) => ({ ...c, name: "" })),
       sound: roster.sound.map(() => ""),
+      mic: ["", ""],
       ambassadors: roster.ambassadors.map(() => ""),
       committee: [],
       eduTeam: [],
@@ -1540,6 +1616,13 @@ function App() {
       (roster.sound[i] || "").trim(),
       `電音 ${i + 1}`
     );
+  const dropMic = (i, name) =>
+    assignTo(
+      name,
+      { mic: (roster.mic || ["", ""]).map((n, x) => (x === i ? name : (n || "").trim() === name ? "" : n)) },
+      ((roster.mic || [])[i] || "").trim(),
+      `傳 Mic 手 ${i + 1}`
+    );
   const dropAmb = (i, name) =>
     assignTo(
       name,
@@ -1560,6 +1643,11 @@ function App() {
     const old = (roster.sound[i] || "").trim();
     if (!old) return;
     releaseTo(old, { sound: roster.sound.map((n, x) => (x === i ? "" : n)) }, `電音 ${i + 1}`);
+  };
+  const unassignMic = (i) => {
+    const old = ((roster.mic || [])[i] || "").trim();
+    if (!old) return;
+    releaseTo(old, { mic: (roster.mic || ["", ""]).map((n, x) => (x === i ? "" : n)) }, `傳 Mic 手 ${i + 1}`);
   };
   const unassignAmb = (i) => {
     const old = (roster.ambassadors[i] || "").trim();
@@ -1615,7 +1703,7 @@ function App() {
     ].filter(Boolean)
   );
   const memberOptions = [
-    ...new Set([...roster.members, ...(roster.committee || [])].map((s) => s.trim()).filter(Boolean)),
+    ...new Set([...roster.members, ...(roster.committee || []), ...(roster.mic || [])].map((s) => s.trim()).filter(Boolean)),
   ].filter((n) => !fixedNames.has(n));
   const takenAbsent = new Set([...weekly.absent, ...weekly.proxies]);
   const availableOptions = memberOptions.filter((m) => !takenAbsent.has(m));
@@ -2272,7 +2360,7 @@ function App() {
                 <div className="no-print" style={{ fontSize: 13.5, color: "#7A6E5A", marginBottom: 12 }}>
                   凹字形優先：左右各兩列×3桌、正面先2桌；滿了才把正面增加至3～6桌(本週:{result.stats.bottomRows} 排)，最後才平均延伸左右。來賓桌視野優先:正面內圈 → 內圈直排 → 正面後排 → 外圈。
                   來賓兩側為委員與小天使,委員在離螢幕較遠側(直排=下方座位)。
-                  新人-導師固定同桌。點選或拖曳名字可交換;大使席固定。存檔以畫面目前位置為準。
+                  傳 Mic 手固定安排在非來賓桌的角落，角落依例會日期輪換。新人-導師固定同桌。點選或拖曳名字可交換;大使席固定。存檔以畫面目前位置為準。
                 </div>
               )}
 
@@ -2483,7 +2571,7 @@ function App() {
       {tab === "roster" && (
         <div className="no-print" style={{ padding: 20, maxWidth: 820 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 4 }}>
-            <span style={{ fontWeight: 800, fontSize: 16 }}>領導團隊與電音(每半年改選)</span>
+            <span style={{ fontWeight: 800, fontSize: 16 }}>領導團隊、電音與傳 Mic 手(每半年改選)</span>
             <button
               style={{ ...btn(false), padding: "6px 14px", color: C.red, borderColor: C.red }}
               onClick={retireAll}
@@ -2548,6 +2636,33 @@ function App() {
                 />
               </div>
             ))}
+            {(roster.mic || ["", ""]).map((n, i) => (
+              <div key={"mic" + i} {...dropProps((nm) => dropMic(i, nm))}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#287A38", marginBottom: 3 }}>
+                  傳 Mic 手 {i + 1}
+                  {(n || "").trim() && (
+                    <button
+                      style={{ border: "none", background: "none", color: C.red, cursor: "pointer", fontWeight: 900, marginLeft: 4, fontSize: 13 }}
+                      title="卸任,回到會員名單"
+                      onClick={() => unassignMic(i)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <input
+                  style={{ ...inputStyle, width: 120 }}
+                  value={n}
+                  onChange={(e) => {
+                    const mic = [...(roster.mic || ["", ""] )];
+                    const name = e.target.value;
+                    mic[i] = name;
+                    mic.forEach((n, x) => { if (x !== i && (n || "").trim() === name.trim() && name.trim()) mic[x] = ""; });
+                    updateRoster({ ...roster, mic });
+                  }}
+                />
+              </div>
+            ))}
             {roster.ambassadors.map((n, i) => (
               <div key={"a" + i} {...dropProps((nm) => dropAmb(i, nm))}>
                 <div style={{ fontSize: 12.5, fontWeight: 700, color: C.blueBorder, marginBottom: 3 }}>
@@ -2575,7 +2690,7 @@ function App() {
             ))}
           </div>
           <div style={{ fontSize: 13, color: "#7A6E5A", marginBottom: 14 }}>
-            大使與董顧固定同桌、位置不變,系統會自動安排一位會員與他們同桌(每週輪換)。
+            傳 Mic 手固定 2 位，系統會避開來賓桌並依例會日期輪換至不同角落。大使與董顧固定同桌、位置不變,系統會自動安排一位會員與他們同桌(每週輪換)。
           </div>
 
           {/* 拖曳指派:會員池 + 委員區 */}
