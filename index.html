@@ -368,6 +368,8 @@ const C = {
   blueBorder: "#46618A",
   yellow: "#FBEB8A",
   yellowBorder: "#B99B1F",
+  mic: "#D8EAF3",
+  micBorder: "#3F718B",
   amber: "#FFF6E0",
 };
 
@@ -385,6 +387,8 @@ const seatStyle = (kind) => ({
       ? C.proxy
       : kind === "amb"
       ? C.blue
+      : kind === "mic"
+      ? C.mic
       : kind === "visitor"
       ? "#E8E4DA"
       : C.seat,
@@ -395,6 +399,8 @@ const seatStyle = (kind) => ({
       ? C.proxyBorder
       : kind === "amb"
       ? C.blueBorder
+      : kind === "mic"
+      ? C.micBorder
       : kind === "visitor"
       ? "#9A917E"
       : C.seatBorder
@@ -571,7 +577,7 @@ function GuestSignSheet({ data }) {
   const d = fmtMinguo(data.label);
   const guests = data.guests || [];
   const rows = Math.max(12, guests.length);
-  const td = { border: "1px solid #000", padding: "9px 6px", textAlign: "center", fontSize: 16, height: 26 };
+  const td = { border: "1px solid #000", padding: "9px 6px", textAlign: "center", fontSize: "14pt", height: 26 };
   const widths = [52, 110, 110, 150, 140, 230, 90, 54];
   return (
     <div style={{ width: A4.longSide, minHeight: A4.shortSide, boxSizing: "border-box", background: "#fff", color: "#000", padding: "40px 46px 28px", fontFamily: KAI }}>
@@ -582,7 +588,7 @@ function GuestSignSheet({ data }) {
         <thead>
           <tr>
             {["序號", "嘉賓姓名", "嘉賓簽到", "行業別", "手機號碼", "E-mail", "邀請人", "繳費打勾"].map((h, i) => (
-              <th key={h} style={{ ...td, fontWeight: 700, fontSize: i === 7 ? 13 : 17, width: widths[i] }}>{h}</th>
+              <th key={h} style={{ ...td, fontWeight: 700, width: widths[i] }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -596,7 +602,7 @@ function GuestSignSheet({ data }) {
                 <td style={td}></td>
                 <td style={td}>{g.industry || ""}</td>
                 <td style={td}>{g.phone || ""}</td>
-                <td style={{ ...td, fontSize: 15 }}>{g.email || ""}</td>
+                <td style={td}>{g.email || ""}</td>
                 <td style={td}>{g.inviter || ""}</td>
                 <td style={td}></td>
               </tr>
@@ -1385,6 +1391,14 @@ function App() {
       warnings.push("目前沒有可用的非來賓角落座位，傳 Mic 手請現場手動調整");
     }
 
+    /* 底色跟著傳麥手本人移動，手動換位及存檔後仍可辨識。 */
+    const micSet = new Set(micAttending);
+    ["LO", "LI", "RI", "RO", "bottom"].forEach((z) =>
+      slots[z].forEach((t) => t.seats.forEach((s) => {
+        if (micSet.has(s.name)) s.kind = "mic";
+      }))
+    );
+
     /* 分會參訪桌:不記名、附加在底排會員/來賓桌之後(同排可混坐,會員與來賓在內側);
        桌數已於前面與 bottomCount 一併計算 */
     for (let i = 0; i < vTables; i++) {
@@ -1539,7 +1553,7 @@ function App() {
     }
     const z = result.zones;
     const all = [...z.LO, ...z.LI, ...z.RI, ...z.RO, ...z.bottom, ...(z.amb || [])];
-    const memberKinds = new Set(["member", "committee", "angel"]);
+    const memberKinds = new Set(["member", "committee", "angel", "mic"]);
     const groups = all
       .map((t) =>
         t.seats
@@ -1561,6 +1575,7 @@ function App() {
       stats: result.stats,
       chairRow: chairRowForWeek(roster, weekly.isBod),
       sound: [...roster.sound],
+      mic: [...(roster.mic || [])],
       week: {
         isBod: !!weekly.isBod,
         guests: weekly.guests.filter((g) => g.name && g.name.trim()).map((g) => ({ ...g })),
@@ -1818,6 +1833,7 @@ function App() {
         ["代理出席(右側外圍)", C.proxy, C.proxyBorder],
         ["參訪(底排外側)", "#E8E4DA", "#9A917E"],
         ["大使席(固定)", C.blue, C.blueBorder],
+        ["傳麥手", C.mic, C.micBorder],
       ].map(([t, bg, bd]) => (
         <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
           <span style={{ width: 14, height: 14, background: bg, border: `1.5px solid ${bd}`, borderRadius: 3, display: "inline-block" }} />
@@ -1838,7 +1854,7 @@ function App() {
   const mapView = viewing
     ? viewing
     : result
-    ? { label: weekly.label, isBod: !!weekly.isBod, zones: result.zones, agenda: weekly.agenda, staff: normalizeStaff(weekly.staff), stats: result.stats, chairRow: chairRowForWeek(roster, weekly.isBod), sound: roster.sound }
+    ? { label: weekly.label, isBod: !!weekly.isBod, zones: result.zones, agenda: weekly.agenda, staff: normalizeStaff(weekly.staff), stats: result.stats, chairRow: chairRowForWeek(roster, weekly.isBod), sound: roster.sound, mic: roster.mic || [] }
     : null;
 
   const safeLabelOf = (label) => (label || "未命名").replace(/[\\/:*?"<>|]/g, "-");
