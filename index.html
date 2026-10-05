@@ -598,12 +598,12 @@ function GuestSignSheet({ data }) {
             return (
               <tr key={i}>
                 <td style={td}>{i + 1}</td>
-                <td style={td}>{g.name || ""}</td>
+                <td style={{ ...td, fontSize: "18pt" }}>{g.name || ""}</td>
                 <td style={td}></td>
                 <td style={td}>{g.industry || ""}</td>
                 <td style={td}>{g.phone || ""}</td>
                 <td style={td}>{g.email || ""}</td>
-                <td style={td}>{g.inviter || ""}</td>
+                <td style={{ ...td, fontSize: "18pt" }}>{g.inviter || ""}</td>
                 <td style={td}></td>
               </tr>
             );
