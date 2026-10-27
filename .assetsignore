@@ -1,0 +1,10 @@
+.git
+.claude
+.gitignore
+.assetsignore
+.wrangler
+node_modules
+supabase
+zeabur-export
+README.md
+wrangler.jsonc

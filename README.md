@@ -14,9 +14,13 @@
 
 ## 部署方式
 
-網站由 GitHub Pages 部署：
+網站由 Cloudflare 部署(Workers 靜態資源，原 Cloudflare Pages)：
 
-https://vi-chang.github.io/seat-CHANGCHENG/
+https://seat-changcheng.dental-cases.workers.dev/
+
+更新網站時，在本資料夾執行 `npx wrangler deploy`(需先 `npx wrangler login`)。部署內容與排除清單見 `wrangler.jsonc`、`.assetsignore`。
+
+GitHub Pages 版本仍保留作備援：https://vi-chang.github.io/seat-CHANGCHENG/
 
 雲端資料庫設定與權限規則位於 `supabase/`；更新資料庫時需先連結正確的 Supabase 專案，再套用 migrations。
 
