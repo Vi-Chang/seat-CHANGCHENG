@@ -18,3 +18,7 @@ Desktop.ini
 
 # Supabase local link/cache files
 supabase/.temp/
+
+# Wrangler local cache
+.wrangler/
+node_modules/
